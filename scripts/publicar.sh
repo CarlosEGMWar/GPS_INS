@@ -88,10 +88,14 @@ TMPD=$(mktemp -d) || morir "no pude crear el temporal"
 chmod 700 "$TMPD"
 trap 'rm -rf "$TMPD"' EXIT
 printf '%s' "$TOKEN" > "$TMPD/t"; chmod 600 "$TMPD/t"
+# El usuario se averigua tras validar el token (paso 1). Un PAT clasico se
+# autentica con USUARIO + token; 'x-access-token' solo sirve para tokens de
+# GitHub App, y con un PAT GitHub responde "Invalid username or token".
+: > "$TMPD/u"
 cat > "$TMPD/askpass" <<FIN
 #!/bin/sh
 case "\$1" in
-  *sername*|*serName*) printf 'x-access-token\n' ;;
+  *sername*|*serName*) cat "$TMPD/u" ;;
   *) cat "$TMPD/t" ;;
 esac
 FIN
@@ -122,6 +126,21 @@ case "$PERM" in
     no) morir "el token es valido pero no puede escribir en $REPO_GH" ;;
     *)  morir "el token no sirve para $REPO_GH (caducado, o sin permiso 'repo')" ;;
 esac
+
+api "user" | python3 -c "import json,sys;print(json.load(sys.stdin).get('login',''))" \
+    > "$TMPD/u" 2>/dev/null
+[ -s "$TMPD/u" ] || morir "no pude averiguar el usuario dueno del token"
+info "autenticando como $(cat "$TMPD/u")"
+
+# Comprobar que git puede empujar ANTES de crear ninguna etiqueta: que la API
+# acepte el token no garantiza que git lo acepte. --dry-run autentica contra
+# GitHub sin escribir nada.
+if ! GIT_ASKPASS="$TMPD/askpass" GIT_TERMINAL_PROMPT=0 \
+     git -C "$REPO" push -q --dry-run origin "$RAMA" 2>"$TMPD/err"; then
+    sed 's/^/     /' "$TMPD/err"
+    morir "el token vale para la API pero git no puede empujar con el"
+fi
+info "git puede empujar con ese token                    ok"
 
 # --- rama ---
 ACTUAL=$(git -C "$REPO" rev-parse --abbrev-ref HEAD)
