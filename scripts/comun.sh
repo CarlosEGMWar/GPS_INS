@@ -47,17 +47,20 @@ info()  { printf '   %s\n' "$*"; }
 
 morir() { echo; rojo "ERROR: $*"; exit 1; }
 
+# Si falta algo del entorno, lo prepara solo. No hay que instalar nada a mano.
 comprobar_entorno() {
-    [ -d "$AP/.git" ] || morir "no existe el arbol de ArduPilot en build/ardupilot
-     Clonalo con:  git clone https://github.com/ArduPilot/ardupilot.git build/ardupilot"
-    command -v arm-none-eabi-gcc >/dev/null || morir "no encuentro arm-none-eabi-gcc.
-     Instalalo (ver README), o indica donde esta:
-         export ARM_TOOLCHAIN=/ruta/a/gcc-arm-none-eabi/bin
-     En Windows: esto tiene que correr dentro de WSL, no en cmd/PowerShell."
-    command -v python3 >/dev/null || morir "falta python3"
-    command -v strings >/dev/null || morir "falta 'strings' (paquete binutils).
-     Se usa para comprobar que la libreria propia entro en el binario."
+    if [ ! -d "$AP/.git" ]        || ! command -v arm-none-eabi-gcc >/dev/null 2>&1        || ! python3 -c "import em, pymavlink, intelhex" >/dev/null 2>&1        || [ "$(git -C "$AP" submodule status modules/ChibiOS 2>/dev/null | cut -c1)" = "-" ]; then
+        paso "Falta parte del entorno: preparandolo"
+        "$REPO/scripts/preparar.sh" || morir "no se pudo preparar el entorno"
+        # el compilador puede haberse instalado recien: rehacer el PATH
+        if ! command -v arm-none-eabi-gcc >/dev/null 2>&1; then
+            TC=$(ls -d "$HOME"/opt/gcc-arm-none-eabi-*/bin 2>/dev/null | head -1)
+            [ -n "$TC" ] && export PATH="$TC:$PATH"
+        fi
+    fi
+    command -v arm-none-eabi-gcc >/dev/null || morir "sigue sin haber arm-none-eabi-gcc"
 }
+
 
 # ---------------------------------------------------------------------------
 # Finales de linea: la causa de la mayoria de los problemas raros en Windows.

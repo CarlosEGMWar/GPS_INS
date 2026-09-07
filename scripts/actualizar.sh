@@ -54,7 +54,7 @@ asegurar_eol
 
 paso "1. dejando ArduPilot virgen en $VERSION"
 if ! git -C "$AP" rev-parse --verify "$VERSION" >/dev/null 2>&1; then
-    info "no esta en local, descargando de ArduPilot..."
+    info "la version $VERSION no esta en local, descargandola..."
     git -C "$AP" fetch origin --tags || morir "no pude traer $VERSION"
 fi
 git -C "$AP" checkout -q --detach "$VERSION" 2>/dev/null || morir "no existe la version $VERSION"

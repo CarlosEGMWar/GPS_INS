@@ -95,7 +95,7 @@ conflicto**. Solo 59 líneas repartidas en 7 parches tocan código de ArduPilot.
 | `UPSTREAM` | Versión exacta de ArduPilot sobre la que se construye | Sí |
 | `overlay/` | Nuestros archivos: el driver, la placa, el bootloader | Sí |
 | `patches/` | Los 7 parches a ArduPilot, más su explicación | Sí |
-| `scripts/` | Las herramientas para compilar y actualizar | Sí |
+| `scripts/` | Las herramientas: preparar, compilar, actualizar, verificar | Sí |
 | `build/ardupilot/` | ArduPilot descargado. **Desechable**, se regenera | No |
 | `dist/` | Los binarios listos para grabar | No |
 
@@ -141,49 +141,64 @@ específico de ninguna plataforma.
 > Que Windows nativo no sirva no es cosa nuestra: el instalador oficial de
 > ArduPilot para Windows lo que hace es instalar Cygwin, otra capa POSIX.
 
-Necesitás: `git`, `python3`, `binutils` (para `strings`) y el compilador cruzado
-**arm-none-eabi-gcc**.
+Solo necesitás tener **`git`**, **`python3`** y **`binutils`** (para `strings`),
+que suelen venir de serie. El compilador ARM y todo lo demás lo instalan los
+scripts solos: ver la [sección 5](#5-instalación).
 
 ---
 
-## 5. Instalación, paso a paso
+## 5. Instalación
 
-Solo se hace una vez. Ocupa unos 2,4 GB entre ArduPilot y el compilador.
-
-### Paso 1 — clonar este repositorio
+**Dos comandos.** No hay que descargar ArduPilot ni instalar el compilador a
+mano: los scripts detectan qué falta y lo preparan solos.
 
 ```bash
 git clone https://github.com/CarlosEGMWar/GPS_INS.git
 cd GPS_INS
+./scripts/compilar.sh
 ```
 
-### Paso 2 — descargar ArduPilot en la versión correcta
+La primera vez descarga unos **2,4 GB** y tarda un rato largo. Va diciendo qué
+hace:
+
+```
+== Falta parte del entorno: preparandolo
+
+== Descargando ArduPilot (~880 MB, solo esta vez)
+   version: Rover-4.7.1
+== Descargando 11 submodulos (~460 MB, ChibiOS es el grueso)
+== Instalando dependencias de Python (con pip --user)
+== Descargando el compilador ARM (~150 MB, solo esta vez)
+   gcc-arm-none-eabi-10-2020-q4-major  para  x86_64-linux
+Entorno listo.
+
+== 3. compilando SBY_GPS_INS
+...
+```
+
+Las siguientes veces no descarga nada y compila en ~90 s.
+
+### Qué instala, y dónde
+
+| Qué | Dónde | Tamaño |
+|---|---|---|
+| ArduPilot, en la versión de `UPSTREAM` | `build/ardupilot/` | ~880 MB |
+| Sus submódulos (ChibiOS, mavlink…) | `build/ardupilot/modules/` | ~460 MB |
+| `empy`, `pymavlink`, `intelhex`, `future` | `pip --user` | pequeño |
+| El compilador ARM | `~/opt/gcc-arm-none-eabi-*/` | ~150 MB |
+
+Nada de eso toca directorios del sistema ni pide `sudo`.
+
+### Si preferís usar tu propio compilador
+
+Si tu sistema ya trae `arm-none-eabi-gcc`, los scripts lo usan y no descargan
+nada. También podés apuntar al tuyo:
 
 ```bash
-git clone https://github.com/ArduPilot/ardupilot.git build/ardupilot
-git -C build/ardupilot checkout $(head -1 UPSTREAM)
+export ARM_TOOLCHAIN=/ruta/a/gcc-arm-none-eabi/bin
 ```
 
-### Paso 3 — sus submódulos (ChibiOS, mavlink, etc.)
-
-```bash
-git -C build/ardupilot submodule update --init \
-    modules/waf modules/mavlink modules/ChibiOS modules/lwip modules/littlefs \
-    modules/Micro-CDR modules/Micro-XRCE-DDS-Client modules/DroneCAN/DSDL \
-    modules/DroneCAN/dronecan_dsdlc modules/DroneCAN/libcanard modules/DroneCAN/pydronecan
-```
-
-No hacen falta `gtest`, `gbenchmark` ni `gsoap`: son para simulación y tests.
-
-### Paso 4 — dependencias de Python
-
-```bash
-python3 -m pip install --user "empy==3.3.4" pymavlink future intelhex pexpect
-```
-
-### Paso 5 — el compilador ARM
-
-Si tu sistema ya lo trae, saltate esto:
+Si lo querés instalar por paquetes:
 
 ```bash
 sudo apt install gcc-arm-none-eabi binutils      # Debian / Ubuntu
@@ -191,37 +206,32 @@ sudo dnf install arm-none-eabi-gcc-cs binutils   # Fedora
 brew install --cask gcc-arm-embedded             # macOS
 ```
 
-Si no, o si querés la versión que ArduPilot recomienda (**10-2020-q4-major**):
+> ArduPilot recomienda la versión **10-2020-q4-major**, que es la que descargan
+> los scripts. Con versiones muy distintas del compilador pueden salir avisos o
+> cambiar el tamaño del binario.
+
+### Preparar sin compilar
+
+Si solo querés dejar el entorno listo y compilar más tarde:
 
 ```bash
-mkdir -p ~/opt && cd ~/opt
-wget -c https://firmware.ardupilot.org/Tools/STM32-tools/gcc-arm-none-eabi-10-2020-q4-major-x86_64-linux.tar.bz2
-tar xjf gcc-arm-none-eabi-10-2020-q4-major-x86_64-linux.tar.bz2
-cd -
+./scripts/preparar.sh
 ```
 
-Cambiá `x86_64-linux` por `mac`, `aarch64-linux` o el que corresponda. Están todos
-en <https://firmware.ardupilot.org/Tools/STM32-tools/>.
-
-Los scripts buscan el compilador en este orden: el del `PATH`, luego la variable
-`ARM_TOOLCHAIN`, luego `~/opt/gcc-arm-none-eabi-*/bin`, luego rutas del sistema.
-Si lo tenés en otro sitio:
-
-```bash
-export ARM_TOOLCHAIN=/ruta/a/gcc-arm-none-eabi/bin
-```
-
-### Paso 6 — comprobar que todo está
-
-```bash
-./scripts/compilar.sh
-```
-
-Si termina en verde, el entorno funciona y ya tenés los binarios en `dist/`.
+Se puede correr las veces que quieras: solo hace lo que falte.
 
 ---
 
-## 6. Los tres comandos
+## 6. Los comandos
+
+Son cuatro, pero en el día a día usás uno.
+
+| Comando | Para qué |
+|---|---|
+| `compilar.sh` | **el del día a día**: compila lo que hay |
+| `actualizar.sh` | reconstruir desde cero, y saltar de versión |
+| `preparar.sh` | dejar el entorno listo (lo llaman los otros solos) |
+| `verificar.sh` | comprobar el binario (lo llaman los otros solos) |
 
 ### `./scripts/compilar.sh` — el del día a día
 
@@ -248,9 +258,17 @@ verifica. Úsalo cuando quieras un resultado limpio y reproducible.
 
 > ⚠️ **Borra lo que tengas editado en `build/ardupilot/` sin guardar.**
 
+### `./scripts/preparar.sh` — dejar el entorno listo
+
+Descarga ArduPilot, sus submódulos, las dependencias de Python y el compilador
+ARM, pero **solo lo que falte**. `compilar.sh` y `actualizar.sh` lo llaman solos
+cuando detectan que algo no está, así que casi nunca hace falta invocarlo a mano.
+
 ### `./scripts/verificar.sh` — comprobar el binario
 
-Corre solo al final de los otros dos. Ver [la sección 9](#9-la-comprobación-que-no-hay-que-saltarse).
+Busca las cadenas propias dentro del firmware compilado. Corre solo al final de
+`compilar.sh` y `actualizar.sh`, y corta el proceso si algo falta.
+Ver [la sección 9](#9-la-comprobación-que-no-hay-que-saltarse).
 
 ---
 
