@@ -37,7 +37,7 @@ echo "compilar.sh  -  desarrollo (sin reset)"
 comprobar_entorno
 
 paso "1. preparando el arbol"
-normalizar_crlf
+asegurar_eol
 if [ "$SIN_OVERLAY" -eq 1 ]; then
     info "overlay NO sincronizado (--sin-overlay)"
 else

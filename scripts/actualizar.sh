@@ -13,12 +13,15 @@
 #
 #  Que hace, en orden:
 #    1. deja build/ardupilot en la version de UPSTREAM, virgen
-#    2. normaliza el CRLF de make_intel_hex.py (clones de Windows)
-#    3. copia overlay/            -> tus archivos propios
-#    4. aplica patches/ en orden  -> CORTA en el primero que falle
-#    5. compila
-#    6. genera dist/ (.hex .bin .apj) y verifica
-#    7. si saltaste de version y todo fue bien, actualiza el archivo UPSTREAM
+#    2. copia overlay/            -> tus archivos propios
+#    3. aplica patches/ en orden  -> CORTA en el primero que falle
+#    4. compila
+#    5. genera dist/ (.hex .bin .apj) y verifica
+#    6. si saltaste de version y todo fue bien, actualiza el archivo UPSTREAM
+#
+#  Antes de todo eso fuerza core.autocrlf=false en el arbol: si se clono en
+#  Windows viene en CRLF, y entonces git desde WSL ve los ~6000 archivos como
+#  modificados y waf muere al generar el .hex.
 # ============================================================================
 set -u
 source "$(dirname "${BASH_SOURCE[0]}")/comun.sh"
@@ -47,6 +50,8 @@ VERSION=$(head -1 "$REPO/UPSTREAM")
 [ -n "$NUEVA" ] && VERSION="$NUEVA"
 info "objetivo: $VERSION"
 
+asegurar_eol
+
 paso "1. dejando ArduPilot virgen en $VERSION"
 if ! git -C "$AP" rev-parse --verify "$VERSION" >/dev/null 2>&1; then
     info "no esta en local, descargando de ArduPilot..."
@@ -54,7 +59,7 @@ if ! git -C "$AP" rev-parse --verify "$VERSION" >/dev/null 2>&1; then
 fi
 git -C "$AP" checkout -q --detach "$VERSION" 2>/dev/null || morir "no existe la version $VERSION"
 git -C "$AP" reset --hard -q HEAD
-git -C "$AP" clean -fdq libraries Tools 2>/dev/null
+limpiar_overlay
 sucio=$(git -C "$AP" status --porcelain --ignore-submodules=dirty | wc -l)
 [ "$sucio" -eq 0 ] || morir "el arbol no quedo limpio ($sucio archivos)"
 info "arbol virgen: $(git -C "$AP" log -1 --format='%h %s')"
@@ -66,13 +71,10 @@ git -C "$AP" submodule update --init --recursive \
     modules/DroneCAN/dronecan_dsdlc modules/DroneCAN/libcanard modules/DroneCAN/pydronecan \
     >/dev/null 2>&1 || info "aviso: algun submodulo no se pudo sincronizar"
 
-paso "2. normalizando finales de linea"
-normalizar_crlf
-
-paso "3. copiando overlay/"
+paso "2. copiando overlay/"
 copiar_overlay
 
-paso "4. aplicando la cola de parches"
+paso "3. aplicando la cola de parches"
 n=0
 while read -r parche; do
     [ -z "$parche" ] && continue
@@ -100,17 +102,17 @@ while read -r parche; do
 done < "$REPO/patches/series"
 info "$n parches aplicados sin conflictos"
 
-paso "5. compilando $PLACA"
+paso "4. compilando $PLACA"
 compilar
 
-paso "6. empaquetando en dist/"
+paso "5. empaquetando en dist/"
 empaquetar
 
-paso "7. verificando"
+paso "6. verificando"
 "$REPO/scripts/verificar.sh" || morir "la verificacion fallo: NO grabes este firmware"
 
 if [ -n "$NUEVA" ]; then
-    paso "8. fijando la nueva version en UPSTREAM"
+    paso "7. fijando la nueva version en UPSTREAM"
     sha=$(git -C "$AP" rev-parse HEAD)
     printf '%s\n%s\n' "$NUEVA" "$sha" > "$REPO/UPSTREAM"
     info "UPSTREAM -> $NUEVA ($sha)"

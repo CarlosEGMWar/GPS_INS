@@ -1,215 +1,416 @@
 # GPS_INS — firmware ArduPilot para la placa SBY_GPS_INS
 
-Soporte de la placa **SBY GPS G3.1** de SBY Technologies sobre **ArduPilot Rover**,
-mantenido como **cola de parches** en vez de como un fork completo.
+Firmware de la placa **SBY GPS G3.1** de SBY Technologies, construido sobre
+**ArduPilot Rover**.
 
-Este repositorio pesa unos 500 KB y contiene **solo lo propio**: el driver, la
-definición de la placa y los 7 parches que ArduPilot necesita. ArduPilot en sí
-(1,9 GB) no está aquí — lo descarga el script cuando hace falta, en la versión
-exacta que dice el archivo [`UPSTREAM`](UPSTREAM).
-
----
-
-## Qué es la placa, en corto
-
-- **MCU:** STM32F413RHT3 (Cortex-M4, 1,5 MB de flash)
-- **GNSS:** Septentrio mosaic-G5, hablando NMEA
-- **IMUs:** ADIS16467 por SPI (primaria) + Bosch BMI088 por I2C (redundancia)
-- **Sin brújula, sin barómetro, sin salidas PWM**
-
-Lo que aporta este firmware sobre ArduPilot estándar:
-
-- Una salida NMEA propietaria por USART1 con **`$GNGGA` y `$PASHR` alimentados por
-  el EKF**, no por el GPS crudo. La posición sale de la solución fusionada
-  GNSS+IMU, y el `$PASHR` lleva actitud y estados del filtro Kalman.
-- El comando **`$GO_BOOT`**, que deja el micro en el bootloader de ROM para
-  grabarlo por UART sin tocar la placa.
-- Soporte del **ADIS16467**, que ArduPilot no reconoce.
-- Arreglos del **STM32F413** (USB y DMA) necesarios para que la placa arranque.
-
-> **Pinout completo:** [`overlay/GPS_G3_1_Conexiones_GPIO.xlsx`](overlay/GPS_G3_1_Conexiones_GPIO.xlsx)
-> es la referencia autoritativa. La configuración que realmente usa el firmware está en
-> [`overlay/libraries/AP_HAL_ChibiOS/hwdef/SBY_GPS_INS/hwdef.dat`](overlay/libraries/AP_HAL_ChibiOS/hwdef/SBY_GPS_INS/hwdef.dat),
-> y su explicación en el [README de la placa](overlay/libraries/AP_HAL_ChibiOS/hwdef/SBY_GPS_INS/README.md).
+Este repositorio **no contiene ArduPilot**. Contiene solo lo que SBY añade —unos
+2.100 líneas— y unos scripts que descargan ArduPilot, le aplican esos cambios y
+compilan. Por eso pesa 540 KB en vez de 2 GB.
 
 ---
 
-## Cómo funciona
+## 1. Qué es la placa
+
+Una controladora GPS/INS: fusiona un receptor GNSS con dos unidades inerciales y
+emite una solución de posición y actitud.
+
+| | |
+|---|---|
+| **Microcontrolador** | STM32F413RHT3 (ARM Cortex-M4, 1,5 MB de flash) |
+| **GNSS** | Septentrio mosaic-G5, hablando NMEA |
+| **IMU primaria** | Analog Devices ADIS16467, por SPI |
+| **IMU secundaria** | Bosch BMI088, por I2C |
+| **No lleva** | brújula, barómetro ni salidas PWM |
+
+### Qué le añade este firmware a ArduPilot
+
+1. **Una salida NMEA propietaria** por USART1, con `$GNGGA` y `$PASHR`
+   **alimentados por el EKF**, no por el GPS crudo. La posición sale de la
+   solución fusionada GNSS+IMU, y el `$PASHR` lleva la actitud y los estados del
+   filtro de Kalman. Esa es la razón de ser del producto.
+2. **El comando `$GO_BOOT`**, que pone el micro en el bootloader de fábrica para
+   reprogramarlo por cable serie, sin tocar la placa.
+3. **Soporte del ADIS16467**, que ArduPilot no reconoce.
+4. **Arreglos del STM32F413** en USB y DMA, sin los cuales la placa no arranca.
+
+> El pinout completo está en
+> [`overlay/GPS_G3_1_Conexiones_GPIO.xlsx`](overlay/GPS_G3_1_Conexiones_GPIO.xlsx).
+> La configuración que usa el firmware está en
+> [`hwdef.dat`](overlay/libraries/AP_HAL_ChibiOS/hwdef/SBY_GPS_INS/hwdef.dat),
+> explicada en el [README de la placa](overlay/libraries/AP_HAL_ChibiOS/hwdef/SBY_GPS_INS/README.md).
+
+---
+
+## 2. La idea: overlay + parches
+
+ArduPilot es un proyecto ajeno que se actualiza constantemente. Para no quedarnos
+atrás ni perder nuestros cambios, estos se guardan **por separado** y se vuelven a
+aplicar cada vez.
+
+Los cambios son de **dos tipos**, y cada uno se maneja distinto:
 
 ```
-overlay/    archivos que NO existen en ArduPilot   ->  se COPIAN    (nunca fallan)
-patches/    archivos que SI existen y editamos     ->  se APLICAN   (aqui puede chocar)
+ARCHIVOS NUEVOS            ->  overlay/   ->  se COPIAN
+  archivos que no existen                     nunca fallan: nadie mas
+  en ArduPilot                                los toca
+
+ARCHIVOS DE ARDUPILOT      ->  patches/   ->  se APLICAN
+  archivos suyos que                          aqui es donde puede haber
+  nosotros editamos                           conflicto al actualizar
 ```
 
-Los scripts montan un árbol de ArduPilot **desechable** en `build/ardupilot/`,
-le vuelcan el overlay, le aplican la cola de parches y compilan. Ese árbol se
-regenera entero cuando haga falta: **la verdad vive en `overlay/` y `patches/`**.
+**La regla, para saber dónde va un cambio nuevo:** ¿el archivo ya existe en
+ArduPilot? Si **no**, va a `overlay/`. Si **sí**, va como parche.
+
+Un ejemplo de por qué importa: el `$GNGGA`, el `$PASHR` y el `$GO_BOOT` están
+enteros dentro de nuestro propio driver, así que van en `overlay/` y **nunca dan
+conflicto**. Solo 59 líneas repartidas en 7 parches tocan código de ArduPilot.
 
 ---
 
-## Puesta en marcha (una sola vez)
+## 3. Estructura de carpetas
 
-Hace falta **Linux o WSL**: el sistema de compilación de ArduPilot no corre en
-Windows nativo.
+| Carpeta | Qué es | ¿Se sube a git? |
+|---|---|---|
+| `UPSTREAM` | Versión exacta de ArduPilot sobre la que se construye | Sí |
+| `overlay/` | Nuestros archivos: el driver, la placa, el bootloader | Sí |
+| `patches/` | Los 7 parches a ArduPilot, más su explicación | Sí |
+| `scripts/` | Las herramientas para compilar y actualizar | Sí |
+| `build/ardupilot/` | ArduPilot descargado. **Desechable**, se regenera | No |
+| `dist/` | Los binarios listos para grabar | No |
+
+Detalle de `overlay/`, que es donde vive el producto:
+
+```
+overlay/
+  libraries/AP_NMEA_SBY_INS/                 nuestro driver
+      AP_NMEA_SBY_INS.cpp                       genera $GNGGA y $PASHR, atiende $GO_BOOT
+      AP_NMEA_SBY_INS.h
+      AP_NMEA_SBY_INS_config.h
+      PATCH_NOTES.md                            notas de integracion
+  libraries/AP_HAL_ChibiOS/hwdef/SBY_GPS_INS/   definicion de la placa
+      hwdef.dat                                 pines, puertos serie, IMUs, LEDs
+      hwdef-bl.dat                              lo mismo para el bootloader
+      defaults.parm                             parametros de fabrica
+      README.md, LEDS.md                        documentacion
+  Tools/bootloaders/SBY_GPS_INS_bl.bin        bootloader ya compilado
+  Tools/scripts/sby_release.py                empaqueta los 3 formatos de grabacion
+  GPS_G3_1_Conexiones_GPIO.xlsx               pinout autoritativo
+  especificaciones placa SBY_GPS_INS          documento historico
+```
+
+> **`build/ardupilot/` es desechable a propósito.** Los scripts lo resetean y lo
+> reconstruyen. Si editás algo ahí y no lo pasás a `overlay/` o a `patches/`, **lo
+> perdés**. La verdad vive siempre en esas dos carpetas.
+
+---
+
+## 4. Requisitos
+
+Hace falta **Linux, WSL o macOS**. Los scripts son bash POSIX y no tienen nada
+específico de ninguna plataforma.
+
+| Sistema | ¿Funciona? | Nota |
+|---|---|---|
+| Linux x86_64 | Sí | el caso natural |
+| WSL sobre Windows | Sí | probado en Ubuntu 22.04 |
+| macOS | Sí | usar el toolchain `mac` |
+| Linux ARM (Raspberry, etc.) | Sí | usar el toolchain `aarch64-linux` |
+| **Windows nativo** (cmd/PowerShell) | **No** | waf necesita POSIX |
+
+> Que Windows nativo no sirva no es cosa nuestra: el instalador oficial de
+> ArduPilot para Windows lo que hace es instalar Cygwin, otra capa POSIX.
+
+Necesitás: `git`, `python3`, `binutils` (para `strings`) y el compilador cruzado
+**arm-none-eabi-gcc**.
+
+---
+
+## 5. Instalación, paso a paso
+
+Solo se hace una vez. Ocupa unos 2,4 GB entre ArduPilot y el compilador.
+
+### Paso 1 — clonar este repositorio
 
 ```bash
-# 1. clonar este repositorio
 git clone https://github.com/CarlosEGMWar/GPS_INS.git
 cd GPS_INS
+```
 
-# 2. traer ArduPilot en la version que dice UPSTREAM
+### Paso 2 — descargar ArduPilot en la versión correcta
+
+```bash
 git clone https://github.com/ArduPilot/ardupilot.git build/ardupilot
 git -C build/ardupilot checkout $(head -1 UPSTREAM)
+```
+
+### Paso 3 — sus submódulos (ChibiOS, mavlink, etc.)
+
+```bash
 git -C build/ardupilot submodule update --init \
     modules/waf modules/mavlink modules/ChibiOS modules/lwip modules/littlefs \
     modules/Micro-CDR modules/Micro-XRCE-DDS-Client modules/DroneCAN/DSDL \
     modules/DroneCAN/dronecan_dsdlc modules/DroneCAN/libcanard modules/DroneCAN/pydronecan
+```
 
-# 3. toolchain ARM y dependencias de Python
+No hacen falta `gtest`, `gbenchmark` ni `gsoap`: son para simulación y tests.
+
+### Paso 4 — dependencias de Python
+
+```bash
+python3 -m pip install --user "empy==3.3.4" pymavlink future intelhex pexpect
+```
+
+### Paso 5 — el compilador ARM
+
+Si tu sistema ya lo trae, saltate esto:
+
+```bash
+sudo apt install gcc-arm-none-eabi binutils      # Debian / Ubuntu
+sudo dnf install arm-none-eabi-gcc-cs binutils   # Fedora
+brew install --cask gcc-arm-embedded             # macOS
+```
+
+Si no, o si querés la versión que ArduPilot recomienda (**10-2020-q4-major**):
+
+```bash
 mkdir -p ~/opt && cd ~/opt
 wget -c https://firmware.ardupilot.org/Tools/STM32-tools/gcc-arm-none-eabi-10-2020-q4-major-x86_64-linux.tar.bz2
 tar xjf gcc-arm-none-eabi-10-2020-q4-major-x86_64-linux.tar.bz2
-python3 -m pip install --user "empy==3.3.4" pymavlink future intelhex pexpect
 cd -
 ```
 
-Los scripts buscan el toolchain en `~/opt/gcc-arm-none-eabi-*/bin` y avisan si
-no lo encuentran. Solo se hace una vez: ocupa ~2,4 GB entre ArduPilot y el compilador.
+Cambiá `x86_64-linux` por `mac`, `aarch64-linux` o el que corresponda. Están todos
+en <https://firmware.ardupilot.org/Tools/STM32-tools/>.
 
----
+Los scripts buscan el compilador en este orden: el del `PATH`, luego la variable
+`ARM_TOOLCHAIN`, luego `~/opt/gcc-arm-none-eabi-*/bin`, luego rutas del sistema.
+Si lo tenés en otro sitio:
 
-## Uso diario
+```bash
+export ARM_TOOLCHAIN=/ruta/a/gcc-arm-none-eabi/bin
+```
 
-### Compilar lo que hay
+### Paso 6 — comprobar que todo está
 
 ```bash
 ./scripts/compilar.sh
 ```
 
-Sincroniza el overlay, compila y deja los binarios en `dist/`.
-**No resetea nada**, así que respeta lo que tengas editado en `build/ardupilot/`
-— es el que usás mientras estás probando cosas.
+Si termina en verde, el entorno funciona y ya tenés los binarios en `dist/`.
 
-Opciones: `--sin-overlay` (no pisar tus archivos si los editás dentro del árbol),
-`--sin-dist` (solo compilar).
+---
 
-Cuánto tarda, según lo que cambies:
+## 6. Los tres comandos
 
-| Cambio | Recompila | Tiempo |
+### `./scripts/compilar.sh` — el del día a día
+
+Compila lo que hay ahora mismo y deja los binarios en `dist/`.
+**No borra nada**, así que respeta lo que tengas a medias.
+
+Cuánto tarda depende de qué toques:
+
+| Cambiaste | Recompila | Tiempo |
 |---|---|---|
 | Nada | 0 archivos | ~85 s |
 | Un `.cpp` | ese archivo | ~90 s |
 | `hwdef.dat` o `defaults.parm` | ~1044 archivos | ~10 min |
 
-El `hwdef.dat` es caro porque regenera `hwdef.h`, y medio ArduPilot lo incluye.
+El `hwdef.dat` es caro porque regenera un cabecero que incluye medio ArduPilot.
 
-### Reconstruir desde cero
+Opciones: `--sin-overlay` (no sincronizar `overlay/`, útil si estás editando esos
+archivos dentro del árbol) y `--sin-dist` (solo compilar).
 
-```bash
-./scripts/actualizar.sh
-```
+### `./scripts/actualizar.sh` — reconstruir desde cero
 
-Deja ArduPilot virgen, vuelca el overlay, aplica los 7 parches en orden, compila
-y verifica. **Hace `git reset --hard` sobre `build/ardupilot`: pierdes lo que
-tengas editado ahí sin guardar.**
+Deja ArduPilot virgen, copia el overlay, aplica los 7 parches en orden, compila y
+verifica. Úsalo cuando quieras un resultado limpio y reproducible.
 
-### Actualizar a un release nuevo de ArduPilot
+> ⚠️ **Borra lo que tengas editado en `build/ardupilot/` sin guardar.**
 
-```bash
-./scripts/actualizar.sh --buscar          # ver que releases hay
-./scripts/actualizar.sh Rover-4.7.2       # saltar a ese
-```
+### `./scripts/verificar.sh` — comprobar el binario
 
-Descarga la versión, la deja virgen y reaplica todo encima. Si un parche no entra,
-**se detiene ahí** y te dice cuál, qué archivo y qué hacer. Si todo sale bien,
-actualiza el archivo `UPSTREAM` al final.
-
-La mayoría de actualizaciones salen limpias. Cuando una choca, es porque ArduPilot
-movió justo el código que parcheamos, y eso lo tiene que resolver una persona:
-ver [`patches/README.md`](patches/README.md).
+Corre solo al final de los otros dos. Ver [la sección 9](#9-la-comprobación-que-no-hay-que-saltarse).
 
 ---
 
-## Qué sale en `dist/`
-
-Los tres formatos de programación, verificados entre sí antes de escribirse:
-
-| Fichero | Para grabar con | Dirección |
-|---|---|---|
-| `ardurover_with_bl.hex` | **ST-LINK / SWD** (STM32CubeProgrammer) | va dentro del fichero |
-| `ardurover_with_bl.bin` | **DFU** por USB, y bootloader de ROM por UART | `0x08000000` |
-| `ardurover.apj` | **ArduPilot** (uploader.py / Mission Planner) | implícita |
-| `manifest.json` | commit, tamaños y SHA-256 de cada uno | — |
-
-Los tres llevan el mismo firmware; el script lo comprueba descomprimiendo el
-`.apj` y parseando el `.hex` antes de generarlos. Si algo no cuadra, aborta.
-
-### Cómo grabar cada uno
+## 7. Actualizar a una versión nueva de ArduPilot
 
 ```bash
-# ST-LINK / SWD  (produccion; graba bootloader + app)
+./scripts/actualizar.sh --buscar          # ver que releases hay disponibles
+./scripts/actualizar.sh Rover-4.7.2       # saltar a ese
+```
+
+Qué hace: descarga esa versión, la deja virgen, vuelve a aplicar el overlay y los
+7 parches encima, compila y verifica. Si todo sale bien, actualiza el archivo
+`UPSTREAM` para dejar constancia de sobre qué versión estás.
+
+**Si un parche no entra**, el proceso se detiene ahí mismo y te dice cuál, en qué
+archivo, y qué hacer. Los parches anteriores quedan aplicados. Eso pasa cuando
+ArduPilot movió justo el código que parcheamos, y lo tiene que resolver una
+persona: ninguna herramienta puede decidir por vos. El procedimiento está en
+[`patches/README.md`](patches/README.md).
+
+La versión se cambia **a mano y a propósito**. El script nunca salta solo, para
+que compilar hoy y dentro de un año dé exactamente el mismo binario.
+
+---
+
+## 8. Los 7 parches, uno por uno
+
+Esto es **todo** lo que el firmware le cambia a ArduPilot: **59 líneas en 11
+archivos**. Cada `.patch` lleva dentro su propia explicación, encima del cambio.
+
+### `0001` — registrar el protocolo serie
+
+**Archivos:** `libraries/AP_SerialManager/AP_SerialManager.h` y `.cpp`
+
+Da de alta el protocolo número **100** con el nombre `NMEA_SBY_INS`. Sin esto no
+se puede poner `SERIAL1_PROTOCOL=100` para activar nuestra salida. El `.cpp`
+añade el nombre a la lista que muestra Mission Planner.
+
+### `0002` — enchufar la librería al vehículo ⚠️
+
+**Archivos:** `libraries/AP_Vehicle/AP_Vehicle.h` y `.cpp`
+
+**El más importante de los siete.** Hace tres cosas: crea el objeto, registra su
+parámetro `SBYN_RATE_MS`, y **programa su ejecución 50 veces por segundo**.
+
+Sin la última línea, el firmware compila y arranca igual pero nuestro código
+**no se ejecuta nunca**: no hay salida NMEA, no hay `$GO_BOOT` y no hay LEDs. Sin
+ningún mensaje de error. Por eso existe `verificar.sh`.
+
+### `0003` — incluir la librería en la compilación
+
+**Archivo:** `Tools/ardupilotwaf/ardupilotwaf.py`
+
+Una línea. ArduPilot compila una lista fija de librerías, no todo lo que
+encuentra. Si falta, da error de enlazado — ruidoso, se nota enseguida.
+
+### `0004` — leer la antigüedad de las correcciones RTK
+
+**Archivos:** `libraries/AP_GPS/AP_GPS.h`, `AP_GPS_NMEA.cpp`, `AP_GPS_NMEA.h`
+
+El receptor publica en su GGA cuántos segundos hace que recibió correcciones
+RTK. ArduPilot lo ignora; este parche lo guarda para que nuestra salida lo
+reemita.
+
+Es el único **opcional**: sin él todo funciona, solo que ese campo sale vacío.
+
+### `0005` — reconocer la IMU ADIS16467
+
+**Archivo:** `libraries/AP_InertialSensor/AP_InertialSensor_ADIS1647x.cpp`
+
+ArduPilot soporta los modelos 16470, 16477 y 16507, pero no el 16467 que monta la
+placa. Sin este parche **la IMU primaria no se detecta** y la placa arranca solo
+con la BMI088.
+
+### `0006` — arreglos del STM32F413
+
+**Archivo:** `libraries/AP_HAL_ChibiOS/hwdef/scripts/STM32F413xx.py`
+
+Dos correcciones al generador de configuración de ArduPilot para este micro:
+habilitar el USB (la base de datos del F413 usa un nombre que el generador no
+reconoce) y corregir una opción de DMA que rompe el bus I2C de la BMI088.
+
+Sin esto no compila siquiera.
+
+### `0007` — identificador de placa y bootloader
+
+**Archivos:** `Tools/AP_Bootloader/board_types.txt` y `bl_protocol.cpp`
+
+Registra el identificador `AP_HW_SBY_GPS_INS`. **Hace falta para compilar el
+firmware**, no solo el bootloader: la compilación lee ese archivo para traducir el
+nombre a número.
+
+El cambio en `bl_protocol.cpp` solo afecta a quien recompile el bootloader.
+
+---
+
+## 9. La comprobación que no hay que saltarse
+
+Como explica el `0002`, hay una forma de que el firmware salga **roto pero
+aparentemente correcto**: compila, enlaza, arranca, y no hace nada de lo nuestro.
+
+Por eso, tras cada compilación se buscan nuestras cadenas dentro del binario:
+
+```bash
+strings -n 6 build/ardupilot/build/SBY_GPS_INS/bin/ardurover.bin \
+    | grep -E 'GNGGA|PASHR|GO_BOOT'
+```
+
+Si no aparecen las tres, la librería no entró. `verificar.sh` lo hace solo y corta
+el proceso. **No grabes una placa con un firmware que no pasó esa comprobación.**
+
+---
+
+## 10. Qué sale en `dist/` y cómo se graba
+
+Los tres formatos, para las tres formas de programar la placa:
+
+| Fichero | Se graba con | Dirección |
+|---|---|---|
+| `ardurover_with_bl.hex` | **ST-LINK / SWD** | la lleva dentro |
+| `ardurover_with_bl.bin` | **DFU** por USB, y cable serie tras `$GO_BOOT` | `0x08000000` |
+| `ardurover.apj` | **Mission Planner** o `uploader.py`, por USB | implícita |
+| `manifest.json` | — | huellas SHA-256 y tamaños |
+
+Los tres contienen el mismo firmware. El empaquetador lo comprueba antes de
+escribirlos: descomprime el `.apj`, parsea el `.hex`, y si algo no coincide,
+aborta sin generar nada.
+
+```bash
+# ST-LINK / SWD  (produccion; graba bootloader + aplicacion)
 STM32_Programmer_CLI -c port=SWD mode=UR -w dist/ardurover_with_bl.hex -v -rst
 
-# DFU  (recuperacion; BOOT0 alto + reset, aparece 0483:df11)
+# DFU  (recuperacion; BOOT0 en alto + reset, aparece como 0483:df11)
 dfu-util -a 0 -d 0483:df11 -s 0x08000000:leave -D dist/ardurover_with_bl.bin
 
-# ArduPilot  (actualizacion normal por USB, sin tocar la placa)
+# ArduPilot  (actualizacion normal por USB, sin abrir el equipo)
 python Tools/scripts/uploader.py --port COMx dist/ardurover.apj
 #  o Mission Planner -> Install Firmware -> Load custom firmware
 
-# UART  (tras mandar  $GO_BOOT,*6D  por SERIAL1, a 115200 8-N-1)
+# Cable serie  (tras enviar  $GO_BOOT,*6D  por SERIAL1 a 115200 8-N-1)
 python -m stm32loader -p COMx -b 115200 -P even -a 0x08000000 -f F4 -e -w -v \
        dist/ardurover_with_bl.bin
 ```
 
-> ⚠️ Solo hay **un** `.bin` en `dist/` a propósito. La app suelta va en
-> `0x08010000` y confundirla con la combinada al grabar por DFU deja la placa
-> sin bootloader.
+> ⚠️ Hay **un solo `.bin`** en `dist/`, a propósito. La aplicación suelta se graba
+> en otra dirección (`0x08010000`) y confundirla con la combinada al usar DFU deja
+> la placa sin bootloader.
+
+Diferencia importante entre vías: el `.apj` escribe **solo la aplicación** y no
+toca el bootloader, así que si falla a medias la placa sigue siendo recuperable.
+El `.hex` y el `.bin` reescriben **también el bootloader**.
 
 ---
 
-## Estructura
+## 11. Cosas que conviene saber
 
-```
-UPSTREAM              version de ArduPilot sobre la que se construye
-overlay/              archivos propios, se copian tal cual al arbol
-patches/              los 7 parches al core + series + README
-scripts/
-   compilar.sh        desarrollo: compila lo que hay, sin resetear
-   actualizar.sh      ciclo limpio, y salto de version
-   verificar.sh       comprueba que el binario esta completo
-   comun.sh           funciones compartidas
-build/ardupilot/      arbol desechable          (ignorado por git)
-dist/                 binarios generados        (ignorado por git)
-```
+**No edites dentro de `build/ardupilot/` esperando que se guarde.**
+`actualizar.sh` lo resetea. Si tocás un archivo de ArduPilot, regenerá su parche
+antes. `compilar.sh` te lista lo que tengas modificado, como recordatorio.
 
----
+**El `$PASHR` sale en radianes, no en grados.** El estándar dice grados; nos
+apartamos a propósito por compatibilidad con el software de SBY. Un programa
+genérico leerá mal esa salida. Está avisado en la cabecera del driver.
 
-## Cosas que conviene saber
+**En Windows, los finales de línea rompen la compilación.** Si el árbol se clona
+con `core.autocrlf=true`, git desde WSL ve ~6000 archivos como modificados y la
+compilación muere en la última tarea. Los scripts lo corrigen solos. Para
+arreglarlo de raíz en tu equipo: `git config --global core.autocrlf input`.
 
-**Nunca edites dentro de `build/ardupilot/` pensando que se guarda.**
-`actualizar.sh` lo resetea. Si tocás un archivo de ArduPilot, regenerá su
-`.patch` antes de volver a correrlo. `compilar.sh` te lista lo que tengas
-modificado sin guardar, como recordatorio.
-
-**El `$PASHR` sale en radianes, no en grados.** Se aparta del estándar a
-propósito, por compatibilidad con el software de SBY. Un parser genérico lo
-leerá mal. Está documentado en la cabecera del driver.
-
-**En clones de Windows, `core.autocrlf` rompe el build.** Deja los `.py` de
-`Tools/scripts` en CRLF y waf muere en la última tarea, al generar el `.hex`,
-tras compilar las 999 anteriores. Los scripts lo normalizan solos en cada
-pasada. Para arreglarlo de raíz: `git config --global core.autocrlf input`.
-
-**Comprobación antes de grabar una placa.** Si el parche `0002` se perdiera en
-una actualización, el firmware compila igual pero se queda sin salida NMEA, sin
-`$GO_BOOT` y sin LEDs, en silencio. `verificar.sh` lo detecta buscando las
-cadenas dentro del binario, y corre solo al final de los dos scripts.
+**El driver compila en dos versiones de ArduPilot a la vez.** Usa los nombres
+antiguos de `AP_GPS` comparados como enteros, que existen tanto en Rover-4.7.x
+como en master. Esa adaptación es exclusiva de este fork y **no debe proponerse a
+ArduPilot**.
 
 ---
 
-## Licencia
+## 12. Licencia
 
-ArduPilot es **GPLv3**. Este repositorio contiene trabajo derivado —parches y
-un driver— y se publica bajo la misma licencia. ArduPilot es propiedad de sus
-autores; ver [ArduPilot/ardupilot](https://github.com/ArduPilot/ardupilot).
+ArduPilot se distribuye bajo **GPLv3**. Este repositorio contiene trabajo derivado
+—parches y una librería— y se publica bajo la misma licencia.
+
+ArduPilot es propiedad de sus autores:
+[ArduPilot/ardupilot](https://github.com/ArduPilot/ardupilot).
