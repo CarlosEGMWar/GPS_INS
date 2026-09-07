@@ -1,0 +1,19 @@
+# Finales de linea. IMPRESCINDIBLE: sin esto, un clon en Windows con
+# core.autocrlf=true escribe los scripts en CRLF y bash los rechaza con
+#   ./scripts/compilar.sh: /bin/bash^M: bad interpreter
+# Es el primer comando que ejecuta quien clona, asi que fallaria de entrada.
+* text=auto eol=lf
+
+*.sh    text eol=lf
+*.py    text eol=lf
+*.patch text eol=lf
+series  text eol=lf
+*.dat   text eol=lf
+*.parm  text eol=lf
+*.md    text eol=lf
+
+# Binarios: git no debe tocarlos ni intentar diferenciarlos
+*.bin  binary
+*.hex  binary
+*.apj  binary
+*.xlsx binary

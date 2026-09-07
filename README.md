@@ -9,6 +9,26 @@ compilan. Por eso pesa 540 KB en vez de 2 GB.
 
 ---
 
+## ¿Solo querés grabar una placa?
+
+**No hace falta compilar nada.** Los binarios ya hechos están en
+**[Releases](https://github.com/CarlosEGMWar/GPS_INS/releases)**:
+
+| Descargá esto | Si vas a grabar con |
+|---|---|
+| `ardurover_with_bl.hex` | **ST-LINK / SWD** |
+| `ardurover_with_bl.bin` | **DFU** por USB, o cable serie |
+| `ardurover.apj` | **Mission Planner**, por USB |
+| `SBY_GPS_INS-vX.Y.Z.zip` | los tres juntos, con instrucciones dentro |
+
+Los comandos de grabación están en la [sección 10](#10-qué-sale-en-dist-y-cómo-se-graba)
+y también dentro del zip.
+
+El resto de este documento es para **compilar el firmware vos mismo**, que solo
+hace falta si vas a modificarlo o a actualizarlo a una versión nueva de ArduPilot.
+
+---
+
 ## 1. Qué es la placa
 
 Una controladora GPS/INS: fusiona un receptor GNSS con dos unidades inerciales y
@@ -96,7 +116,7 @@ overlay/
   Tools/bootloaders/SBY_GPS_INS_bl.bin        bootloader ya compilado
   Tools/scripts/sby_release.py                empaqueta los 3 formatos de grabacion
   GPS_G3_1_Conexiones_GPIO.xlsx               pinout autoritativo
-  especificaciones placa SBY_GPS_INS          documento historico
+  especificaciones_placa_SBY_GPS_INS.md       documento historico
 ```
 
 > **`build/ardupilot/` es desechable a propósito.** Los scripts lo resetean y lo
@@ -382,6 +402,22 @@ python -m stm32loader -p COMx -b 115200 -P even -a 0x08000000 -f F4 -e -w -v \
 Diferencia importante entre vías: el `.apj` escribe **solo la aplicación** y no
 toca el bootloader, así que si falla a medias la placa sigue siendo recuperable.
 El `.hex` y el `.bin` reescriben **también el bootloader**.
+
+### Publicar una versión
+
+Cuando una compilación se da por buena, sus binarios se publican en
+[Releases](https://github.com/CarlosEGMWar/GPS_INS/releases) con una etiqueta de
+versión. Así cualquiera puede grabar una placa sin montar el entorno, y queda
+constancia de qué se entregó y cuándo.
+
+Cada release lleva los tres formatos sueltos, el `manifest.json` con las huellas
+SHA-256, y un `.zip` con todo junto más un `COMO_GRABAR.txt`.
+
+Antes de grabar, conviene comprobar que la descarga no se corrompió:
+
+```bash
+sha256sum ardurover_with_bl.bin      # debe coincidir con el manifest.json
+```
 
 ---
 
