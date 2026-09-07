@@ -365,6 +365,8 @@ for a in d.get('assets',[]):
 echo
 verde "Publicado $ETIQUETA"
 echo
-echo "Para comprobar que lo publicado es reproducible, cualquiera puede clonar"
-echo "el repo en $ETIQUETA, ejecutar ./scripts/actualizar.sh y comparar los SHA-256"
-echo "con los de manifest.json. Tienen que salir identicos."
+echo "Para comprobar que lo publicado es reproducible:"
+echo "  git clone <repo> && cd <repo> && git checkout $ETIQUETA"
+echo "  ./scripts/actualizar.sh"
+echo "  sha256sum dist/*"
+echo "Tienen que salir identicos a los de las notas de la release."

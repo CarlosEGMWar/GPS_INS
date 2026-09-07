@@ -64,12 +64,24 @@ jobs:
               git status --short
               exit 1
           fi
-          # La etiqueta promete una version de ArduPilot: que sea la que se uso.
-          AP_REAL=$(bash -c '. scripts/interno/comun.sh >/dev/null 2>&1; version_ardupilot')
-          if [ "$AP_REAL" != "$AP_TAG" ]; then
-              echo "::error::la etiqueta dice $AP_TAG pero se compilo contra $AP_REAL"
+          # La etiqueta promete una version de ArduPilot: que sea esa, de verdad.
+          #
+          # Se comparan COMMITS, no nombres. Comparando texto habria un falso
+          # negativo: si se etiqueta sobre un commit suelto de ArduPilot en vez
+          # de sobre un Rover-*, version_ardupilot devuelve el nombre del tag
+          # mas cercano y no coincidiria con la etiqueta aunque el arbol fuese
+          # exactamente el correcto. El commit no miente.
+          QUIERE=$(git -C build/ardupilot rev-parse --verify "$AP_TAG^{commit}" 2>/dev/null)
+          TIENE=$(git -C build/ardupilot rev-parse --verify HEAD)
+          if [ -z "$QUIERE" ]; then
+              echo "::error::la etiqueta nombra '$AP_TAG', que no existe en ArduPilot"
               exit 1
           fi
+          if [ "$QUIERE" != "$TIENE" ]; then
+              echo "::error::la etiqueta dice $AP_TAG ($QUIERE) pero se compilo $TIENE"
+              exit 1
+          fi
+          echo "ArduPilot: $AP_TAG = $TIENE  (coincide)"
           echo "reproducible desde $(git rev-parse --short HEAD), sobre $AP_REAL"
 
       - name: Notas de la release
