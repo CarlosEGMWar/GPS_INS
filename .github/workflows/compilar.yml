@@ -1,0 +1,61 @@
+name: compilar
+
+# Compila el firmware en una maquina LIMPIA, sin nada preinstalado.
+#
+# El objetivo no es solo saber que compila: es ejercitar preparar.sh en la
+# situacion de alguien que acaba de clonar el repo. En la maquina de desarrollo
+# el toolchain y las dependencias ya estan, asi que esos caminos del script no
+# se prueban nunca. Aqui si.
+#
+# A proposito NO se instala nada con apt ni con setup-python: todo lo tiene que
+# resolver preparar.sh, igual que en el equipo de quien clona.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
+  pull_request:
+  workflow_dispatch:          # se puede lanzar a mano desde la pestana Actions
+  schedule:
+    - cron: '0 6 * * 1'       # lunes 06:00 UTC: avisa si algo dejo de compilar
+
+jobs:
+  compilar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Clonar el repo de la cola
+        uses: actions/checkout@v4
+
+      - name: Cache del compilador ARM
+        uses: actions/cache@v4
+        with:
+          path: ~/opt
+          key: toolchain-gcc-arm-none-eabi-10-2020-q4-major
+
+      - name: Que version de ArduPilot vamos a usar
+        run: |
+          echo "UPSTREAM dice:"
+          cat UPSTREAM | sed 's/^/  /'
+
+      - name: Compilar (preparar.sh monta el entorno solo)
+        run: ./scripts/actualizar.sh
+
+      - name: Que se genero
+        run: |
+          ls -la dist/ | sed 's/^/  /'
+          echo
+          echo "--- manifest ---"
+          cat dist/manifest.json
+
+      - name: Guardar los binarios
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-SBY_GPS_INS
+          path: |
+            dist/*.hex
+            dist/*.bin
+            dist/*.apj
+            dist/manifest.json
+          retention-days: 30

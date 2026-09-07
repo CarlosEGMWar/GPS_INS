@@ -54,7 +54,7 @@ emite una solución de posición y actitud.
 4. **Arreglos del STM32F413** en USB y DMA, sin los cuales la placa no arranca.
 
 > El pinout completo está en
-> [`overlay/GPS_G3_1_Conexiones_GPIO.xlsx`](overlay/GPS_G3_1_Conexiones_GPIO.xlsx).
+> [`docs/GPS_G3_1_Conexiones_GPIO.xlsx`](docs/GPS_G3_1_Conexiones_GPIO.xlsx).
 > La configuración que usa el firmware está en
 > [`hwdef.dat`](overlay/libraries/AP_HAL_ChibiOS/hwdef/SBY_GPS_INS/hwdef.dat),
 > explicada en el [README de la placa](overlay/libraries/AP_HAL_ChibiOS/hwdef/SBY_GPS_INS/README.md).
@@ -95,6 +95,7 @@ conflicto**. Solo 59 líneas repartidas en 7 parches tocan código de ArduPilot.
 | `UPSTREAM` | Versión exacta de ArduPilot sobre la que se construye | Sí |
 | `overlay/` | Nuestros archivos: el driver, la placa, el bootloader | Sí |
 | `patches/` | Los 7 parches a ArduPilot, más su explicación | Sí |
+| `docs/` | Pinout y especificaciones de la placa. No entra al build | Sí |
 | `scripts/` | Las herramientas: preparar, compilar, actualizar, verificar | Sí |
 | `build/ardupilot/` | ArduPilot descargado. **Desechable**, se regenera | No |
 | `dist/` | Los binarios listos para grabar | No |
@@ -115,8 +116,6 @@ overlay/
       README.md, LEDS.md                        documentacion
   Tools/bootloaders/SBY_GPS_INS_bl.bin        bootloader ya compilado
   Tools/scripts/sby_release.py                empaqueta los 3 formatos de grabacion
-  GPS_G3_1_Conexiones_GPIO.xlsx               pinout autoritativo
-  especificaciones_placa_SBY_GPS_INS.md       documento historico
 ```
 
 > **`build/ardupilot/` es desechable a propósito.** Los scripts lo resetean y lo

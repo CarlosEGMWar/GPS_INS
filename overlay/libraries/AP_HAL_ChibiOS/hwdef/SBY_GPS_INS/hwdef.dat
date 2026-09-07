@@ -2,7 +2,8 @@
 # =====================================================
 #  SBY_GPS_INS  G3.1   -   SBY Technologies
 #  board SBY GPS G3.1 mod G5 - Main   -   STM32F413RHT3 (LQFP-64, 1.5 MB)
-#  Firmware Rover. Pinout segun GPS_G3_1_Conexiones_GPIO.xlsx.
+#  Firmware Rover. Pinout segun docs/GPS_G3_1_Conexiones_GPIO.xlsx
+#  del repo de la cola de parches (no se copia al arbol de ArduPilot).
 #
 #  IMUs:   ADIS16467 (SPI1, primaria) + BMI088 (I2C1, redundancia)
 #  GNSS:   mosaic-G5 por USART2 (SERIAL3)

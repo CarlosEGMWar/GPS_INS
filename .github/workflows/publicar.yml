@@ -1,0 +1,122 @@
+name: publicar release
+
+# Al empujar una etiqueta vX.Y.Z compila y publica la release con los tres
+# formatos de grabacion y sus huellas SHA-256.
+#
+#     git tag v1.0.1
+#     git push origin v1.0.1
+#
+# Compilar aqui y no en la maquina de alguien tiene una ventaja concreta: los
+# binarios publicados salen de un entorno limpio y reproducible, y el manifest
+# registra de que commit exacto vienen.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      etiqueta:
+        description: 'Etiqueta a publicar (ej: v1.0.1). Tiene que existir ya.'
+        required: true
+
+permissions:
+  contents: write             # necesario para crear la release
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Clonar el repo de la cola
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.etiqueta || github.ref }}
+          fetch-depth: 0       # para que el manifest pueda leer la etiqueta
+
+      - name: Cache del compilador ARM
+        uses: actions/cache@v4
+        with:
+          path: ~/opt
+          key: toolchain-gcc-arm-none-eabi-10-2020-q4-major
+
+      - name: Compilar
+        run: ./scripts/actualizar.sh
+
+      - name: Comprobar que el repo no estaba sucio
+        run: |
+          # Un binario construido desde un arbol con cambios sin commitear no
+          # se puede reproducir, y no deberia publicarse.
+          if [ "$(python3 -c "import json;print(json.load(open('dist/manifest.json'))['sby_dirty'])")" = "True" ]; then
+              echo "::error::el repo tiene cambios sin commitear: este binario no es reproducible"
+              exit 1
+          fi
+          echo "reproducible desde $(python3 -c "import json;print(json.load(open('dist/manifest.json'))['sby_commit'])")"
+
+      - name: Armar el paquete
+        run: |
+          VER="${{ github.event.inputs.etiqueta || github.ref_name }}"
+          DIR="SBY_GPS_INS-$VER"
+          mkdir -p "pkg/$DIR"
+          cp dist/ardurover_with_bl.hex dist/ardurover_with_bl.bin \
+             dist/ardurover.apj dist/manifest.json "pkg/$DIR/"
+          sed "s/__VER__/$VER/" .github/COMO_GRABAR.txt > "pkg/$DIR/COMO_GRABAR.txt"
+          ( cd pkg && zip -qr "$DIR.zip" "$DIR" )
+          echo "VER=$VER" >> "$GITHUB_ENV"
+          ls -la "pkg/$DIR.zip"
+
+      - name: Notas de la release
+        run: |
+          AP_TAG=$(python3 -c "import json;print(json.load(open('dist/manifest.json'))['ardupilot_tag'])")
+          SBY=$(python3 -c "import json;print(json.load(open('dist/manifest.json'))['sby_commit'])")
+          APP=$(python3 -c "import json;print(json.load(open('dist/manifest.json'))['app_size'])")
+          LIBRE=$(python3 -c "import json;d=json.load(open('dist/manifest.json'));print(d['flash_total']-d['combined_size'])")
+          {
+            echo "Firmware de la placa **SBY GPS G3.1**, construido sobre **ArduPilot $AP_TAG**."
+            echo
+            echo "Compilado automaticamente en un entorno limpio desde el commit \`$SBY\`."
+            echo
+            echo "## Que descargar"
+            echo
+            echo "Los tres ficheros llevan **el mismo firmware**. Elegi segun como vayas a grabar."
+            echo
+            echo "| Fichero | Se graba con | Direccion |"
+            echo "|---|---|---|"
+            echo "| \`ardurover_with_bl.hex\` | **ST-LINK / SWD** | la lleva dentro |"
+            echo "| \`ardurover_with_bl.bin\` | **DFU** por USB, o cable serie tras \`\$GO_BOOT\` | \`0x08000000\` |"
+            echo "| \`ardurover.apj\` | **Mission Planner** o \`uploader.py\`, por USB | implicita |"
+            echo "| \`SBY_GPS_INS-$VER.zip\` | los tres juntos, con instrucciones | — |"
+            echo
+            echo "> La via del \`.apj\` es la mas segura: escribe **solo la aplicacion** y no toca"
+            echo "> el bootloader, asi que si falla a medias la placa sigue siendo recuperable."
+            echo
+            echo "## Datos del binario"
+            echo
+            echo '```'
+            echo "aplicacion    $APP B"
+            echo "flash libre   $LIBRE B  de 1 MB"
+            echo '```'
+            echo
+            echo "Huellas SHA-256 en \`manifest.json\`. Comprobalas antes de grabar:"
+            echo
+            echo '```bash'
+            echo "sha256sum ardurover_with_bl.bin"
+            echo '```'
+            echo
+            echo "---"
+            echo "Como se construye: [README](https://github.com/${{ github.repository }}#readme)"
+          } > notas.md
+          cat notas.md
+
+      - name: Publicar
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$VER" \
+            --title "$VER - ArduPilot $(python3 -c "import json;print(json.load(open('dist/manifest.json'))['ardupilot_tag'])")" \
+            --notes-file notas.md \
+            dist/ardurover_with_bl.hex \
+            dist/ardurover_with_bl.bin \
+            dist/ardurover.apj \
+            dist/manifest.json \
+            "pkg/SBY_GPS_INS-$VER.zip"

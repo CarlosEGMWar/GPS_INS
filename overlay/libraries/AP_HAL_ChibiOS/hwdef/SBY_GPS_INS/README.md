@@ -5,7 +5,9 @@ Firmware **ArduPilot Rover**. Salida propietaria NMEA `SBY_INS` (GPGGA + PASHR d
 
 - **MCU:** STM32F413RHT3 (LQFP-64, 1.5 MB flash físico, HSE 8 MHz).
 - **APJ_BOARD_ID:** `AP_HW_SBY_GPS_INS`.
-- **Pinout autoritativo:** `GPS_G3_1_Conexiones_GPIO.xlsx` (raíz del repo).
+- **Pinout autoritativo:** `docs/GPS_G3_1_Conexiones_GPIO.xlsx`, en el repo de la
+  cola de parches ([CarlosEGMWar/GPS_INS](https://github.com/CarlosEGMWar/GPS_INS)).
+  No se copia al árbol de ArduPilot: es documentación, el build no la usa.
 
 > Sin brújula, sin barómetro, sin salidas PWM / control de motores. El rumbo (yaw) sin brújula lo da el EKF3 por GSF/GPS.
 
