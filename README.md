@@ -9,23 +9,19 @@ compilan. De ahí que ocupe 540 KB en lugar de 2 GB.
 
 ---
 
-## Binarios precompilados
+## Binarios
 
-Grabar una placa no requiere compilar. Los binarios de cada versión están en
-**[Releases](https://github.com/CarlosEGMWar/GPS_INS/releases)**:
+Cada [release](https://github.com/CarlosEGMWar/GPS_INS/releases) publica los tres
+formatos de grabación. Los tres contienen el mismo firmware:
 
-| Fichero | Herramienta de grabación |
+| Fichero | Herramienta |
 |---|---|
 | `ardurover_with_bl.hex` | ST-LINK / SWD |
 | `ardurover_with_bl.bin` | DFU por USB, o cable serie |
 | `ardurover.apj` | Mission Planner, por USB |
-| `SBY_GPS_INS-vX.Y.Z.zip` | los tres, más `COMO_GRABAR.txt` |
+| `SBY_GPS_INS-vX.Y.Z.zip` | los tres, más `manifest.json` y `COMO_GRABAR.txt` |
 
-Los comandos de grabación están en la
-[sección 10](#10-qué-sale-en-dist-y-cómo-se-graba) y dentro del zip.
-
-El resto del documento cubre la compilación desde el código, necesaria solo para
-modificar el firmware o portarlo a una versión distinta de ArduPilot.
+Comandos y direcciones: [sección 10](#10-qué-sale-en-dist-y-cómo-se-graba).
 
 ---
 
