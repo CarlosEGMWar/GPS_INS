@@ -1,0 +1,48 @@
+# hw definition file for the SBY_GPS_INS bootloader
+# =====================================================
+#  Bootloader de ArduPilot para SBY_GPS_INS (STM32F413RG).
+#  Habla por USB (OTG_FS) -> Mission Planner hace "reboot to bootloader" y
+#  flashea por USB, sin BOOT0. USART1 queda como fallback UART.
+#  (USB en F413: requiere el alias OTG_FS_DM/DP en STM32F413xx.py, ya parcheado.)
+#  Recuperacion definitiva siempre disponible via BOOT0 + DFU del ROM.
+# =====================================================
+
+MCU STM32F4xx STM32F413xx
+
+APJ_BOARD_ID AP_HW_SBY_GPS_INS
+
+# cristal HSE de la placa (confirmado por el usuario)
+OSCILLATOR_HZ 8000000
+
+FLASH_SIZE_KB 1024
+
+# el bootloader USB es mas grande que el de UART; como el app arranca en 64k,
+# el bootloader puede ocupar hasta esa marca.
+FLASH_USE_MAX_KB 64
+
+# el bootloader se instala en el offset 0
+FLASH_RESERVE_START_KB 0
+
+# ubicacion donde el bootloader carga el firmware (= FLASH_RESERVE_START_KB del app)
+FLASH_BOOTLOADER_LOAD_KB 64
+
+# LED del bootloader (activo-alto asumido: ON = HIGH)
+PB14 LED_BOOTLOADER OUTPUT LOW
+define HAL_LED_ON 1
+
+# subida de firmware: USB (OTG1) primario + USART1 + UART5 + USART6 fallback
+SERIAL_ORDER OTG1 USART1 UART5 USART6
+PA11 OTG_FS_DM OTG1
+PA12 OTG_FS_DP OTG1
+PA9  USART1_TX USART1
+PA10 USART1_RX USART1
+PC12 UART5_TX UART5
+PD2  UART5_RX UART5
+PC6  USART6_TX USART6
+PC7  USART6_RX USART6
+
+# identidad USB (misma VID/PID que la app)
+USB_VENDOR 0x1209
+USB_PRODUCT 0x5741
+USB_STRING_MANUFACTURER "SBY Technologies"
+USB_STRING_PRODUCT "SBY_GPS_INS-BL"

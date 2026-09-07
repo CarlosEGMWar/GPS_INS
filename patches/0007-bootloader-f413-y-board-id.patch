@@ -1,0 +1,45 @@
+AP_Bootloader: board id de SBY_GPS_INS y soporte F413
+
+DONDE: Tools/AP_Bootloader/
+  board_types.txt   linea AP_HW_SBY_GPS_INS con su numero
+  bl_protocol.cpp   guarda alrededor de rccResetOTG_HS en jump_to_app()
+
+board_types.txt ES NECESARIO PARA EL BUILD DEL FIRMWARE, no solo del
+bootloader: libraries/AP_HAL/hwdef/scripts/hwdef.py (get_numeric_board_id) lo
+lee para traducir 'AP_HW_SBY_GPS_INS' a numero. Sin el, falla el configure.
+
+bl_protocol.cpp solo se compila con 'waf bootloader', no con 'waf rover'. El
+macro rccResetOTG_HS existe en toda la familia F4 pero su cuerpo usa
+RCC_AHB1RSTR_OTGHRST, no definido en MCUs sin OTG_HS como el F413.
+
+diff --git a/Tools/AP_Bootloader/bl_protocol.cpp b/Tools/AP_Bootloader/bl_protocol.cpp
+index 159d8d272d..29c4c06c28 100644
+--- a/Tools/AP_Bootloader/bl_protocol.cpp
++++ b/Tools/AP_Bootloader/bl_protocol.cpp
+@@ -333,7 +333,11 @@ jump_to_app()
+ #if !STM32_OTG2_IS_OTG1
+     rccResetOTG_FS();
+ #endif
+-#if defined(rccResetOTG_HS)
++// El macro rccResetOTG_HS existe en toda la familia F4, pero su cuerpo usa
++// RCC_AHB1RSTR_OTGHRST, que NO esta definido en MCUs sin OTG_HS (p.ej. F413,
++// que solo tiene OTG_FS). Se comprueba tambien ese registro para no romper el
++// build del bootloader USB en esos chips.
++#if defined(rccResetOTG_HS) && defined(RCC_AHB1RSTR_OTGHRST)
+     rccResetOTG_HS();
+ #endif
+ #endif
+diff --git a/Tools/AP_Bootloader/board_types.txt b/Tools/AP_Bootloader/board_types.txt
+index fde021bee9..b5d995331a 100644
+--- a/Tools/AP_Bootloader/board_types.txt
++++ b/Tools/AP_Bootloader/board_types.txt
+@@ -513,6 +513,9 @@ AP_HW_Sierra-TrueFlow                5307
+ AP_HW_Sierra-TrueNavIC-Pro           5308
+ AP_HW_Sierra-F1-Pro                  5309
+ 
++# ID privado de SBY Technologies (placa custom, no upstream)
++AP_HW_SBY_GPS_INS                    5400
++
+ #IDs 5401-5499 reserved for holybro
+ AP_HW_Holybro-PMU-F4                 5401
+ AP_HW_Holybro-UM982-G4               5402

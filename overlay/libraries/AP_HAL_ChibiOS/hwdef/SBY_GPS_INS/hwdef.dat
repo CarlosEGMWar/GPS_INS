@@ -1,0 +1,194 @@
+# hw definition file for processing by chibios_pins.py
+# =====================================================
+#  SBY_GPS_INS  G3.1   -   SBY Technologies
+#  board SBY GPS G3.1 mod G5 - Main   -   STM32F413RHT3 (LQFP-64, 1.5 MB)
+#  Firmware Rover. Pinout segun GPS_G3_1_Conexiones_GPIO.xlsx.
+#
+#  IMUs:   ADIS16467 (SPI1, primaria) + BMI088 (I2C1, redundancia)
+#  GNSS:   mosaic-G5 por USART2 (SERIAL3)
+#  Serie:  SERIAL0=USB MAVLink | SERIAL1=USART1 NMEA_SBY_INS out
+#          SERIAL2=UART5 MAVLink (WL52) | SERIAL3=USART2 GPS
+#          SERIAL4=USART6 MAVLink TTL 3.3V (WL52 G3/G4)
+#          USART3 / UART4 : presentes en HW, sin usar por ahora
+#  Sin brujula, sin barometro, sin salidas PWM. CAN sin habilitar por ahora.
+# =====================================================
+
+# MCU class and specific type
+MCU STM32F4xx STM32F413xx
+
+# board ID (id privado SBY; ver Tools/AP_Bootloader/board_types.txt)
+APJ_BOARD_ID AP_HW_SBY_GPS_INS
+
+# Cristal HSE X1 = 8 MHz (PH0/PH1)
+OSCILLATOR_HZ 8000000
+
+STM32_ST_USE_TIMER 5
+
+# Flash: el chip F413RHT3 es 1.5 MB fisico, pero se declara 1 MB. ArduPilot usa
+# el primer 1 MB (el firmware entra de sobra, ~700 KB) y los 512 KB de arriba
+# quedan sin usar. Evita parchear las tablas de flash de ChibiOS (no traen el
+# layout de 1536) sin ninguna perdida funcional para esta placa.
+FLASH_SIZE_KB 1024
+
+# el bootloader ocupa los primeros 64k (ver hwdef-bl.dat)
+FLASH_RESERVE_START_KB 64
+
+# almacenamiento de parametros en flash
+STORAGE_FLASH_PAGE 1
+define HAL_STORAGE_SIZE 15360
+
+# ---- Puertos serie ------------------------------------------------
+# SERIAL0 = OTG1   -> USB CDC / MAVLink (consola; ArduPilot fuerza SERIAL0 a MAVLink)
+# SERIAL1 = USART1 -> NMEA SBY_INS out (PA9 TX / PA10 RX)  [RS232 ch1; RTCM-in sin enrutar por ahora]
+# SERIAL2 = UART5  -> MAVLink companion WL52 (PC12 TX / PD2 RX)
+# SERIAL3 = USART2 -> GPS mosaic-G5 (PA2 TX / PA3 RX)   (SERIAL3 = puerto GPS por defecto)
+# SERIAL4 = USART6 -> MAVLink TTL 3.3V (PC6 TX / PC7 RX)  [hacia WL52 G3/G4]
+# NOTA: USART3 (PB10/PC5, conector IMU H2), UART4 (PA0) existen en el HW, sin usar.
+SERIAL_ORDER OTG1 USART1 UART5 USART2 USART6
+
+# Consola/STDOUT temprano por UART5 (el puerto MAVLink del companion)
+STDOUT_SERIAL SD5
+STDOUT_BAUDRATE 115200
+
+# USART1 : salida NMEA SBY_INS -> SERIAL1
+PA9  USART1_TX USART1
+PA10 USART1_RX USART1
+define DEFAULT_SERIAL1_PROTOCOL SerialProtocol_NMEA_SBY_INS
+define DEFAULT_SERIAL1_BAUD 115200
+
+# UART5 : MAVLink a companion WL52 -> SERIAL2 (RS232 ch2, PC12/PD2)
+PC12 UART5_TX UART5
+PD2  UART5_RX UART5
+define DEFAULT_SERIAL2_PROTOCOL SerialProtocol_MAVLink2
+define DEFAULT_SERIAL2_BAUD 115200
+
+# ---- USB (OTG_FS) : puerto CDC/MAVLink -> SERIAL2 ----
+# PA11/PA12 = D-/D+. Sin sensado de VBUS (modo device forzado, como los F405).
+# USB en F413 requiere el alias OTG_FS_DM/DP en STM32F413xx.py (ya parcheado).
+PA11 OTG_FS_DM OTG1
+PA12 OTG_FS_DP OTG1
+USB_VENDOR 0x1209
+USB_PRODUCT 0x5741
+USB_STRING_MANUFACTURER "SBY Technologies"
+USB_STRING_PRODUCT "SBY_GPS_INS G3.1"
+define DEFAULT_SERIAL0_PROTOCOL SerialProtocol_MAVLink2
+define DEFAULT_SERIAL0_BAUD 115200
+
+# USART2 : GPS mosaic-G5 -> SERIAL3
+PA2 USART2_TX USART2
+PA3 USART2_RX USART2
+
+# USART6 : MAVLink TTL 3.3V (hacia WL52 G3/G4) -> SERIAL4
+PC6 USART6_TX USART6
+PC7 USART6_RX USART6
+define DEFAULT_SERIAL4_PROTOCOL SerialProtocol_MAVLink2
+define DEFAULT_SERIAL4_BAUD 115200
+
+# ---- PPS del GNSS en PC4 -> EXTI4 ----
+# El flanco PPS marca el instante exacto del fix (sin jitter de UART) para el EKF
+# y disciplina la hora UTC de las cadenas NMEA.
+PC4 GPS_PPS INPUT PULLUP GPIO(80)
+define CONFIGURE_PPS_PIN TRUE
+define HAL_GPIO_PPS 80
+
+# SWD (depuracion)
+PA13 JTMS-SWDIO SWD
+PA14 JTCK-SWCLK SWD
+
+# ---- $GO_BOOT : carga del capacitor de BOOT0 (grabacion por UART, AN3155) ----
+# El hardware lleva BOOT0 a un capacitor. Poniendo PB3 en alto se carga, y la
+# carga mantiene BOOT0 alto DURANTE el reset: el micro arranca en el bootloader
+# de ROM y se le graba por USART1 a 115200 8-E-1 (protocolo AN3155 de ST).
+# Lo dispara el comando NMEA "$GO_BOOT,*6D" que entra por SERIAL1
+# (ver AP_NMEA_SBY_INS::go_boot()). Mismo pin que usa el firmware de test de SBY.
+# OJO: PB3 es ademas JTDO/SWO (SWD1 pin 5). Al declararlo GPIO se pierde el trace
+# SWO; el SWD normal (PA13/PA14) no se ve afectado y ArduPilot no usa SWO.
+PB3 SBY_GO_BOOT OUTPUT LOW GPIO(84)
+define SBY_GO_BOOT_PIN 84
+
+# ==================================================================
+# ---- IMU0 (primaria): ADIS16467 en SPI1 (Mode 3) -----------------
+# ==================================================================
+PA5 SPI1_SCK  SPI1
+PA6 SPI1_MISO SPI1
+PA7 SPI1_MOSI SPI1
+PA4 ADIS_CS CS
+
+# Data-Ready del ADIS en PA1 -> EXTI1 (llega por conector GPIOS pin 6)
+PA1 DRDY_ADIS16467 INPUT GPIO(93)
+define HAL_DRDY_ADIS16467_PIN 93
+
+# velocidades SPI (bajo para registros / alto para burst); ajustables
+SPIDEV adis SPI1 DEVID1 ADIS_CS MODE3 1*MHZ 2*MHZ
+
+# El driver ADIS1647x YA reconoce el ADIS16467 (PROD_ID 0x4053), configurado como
+# variante -2 (giro +/-500 deg/s, accel +/-40g, 2 kHz). Detecta al conectarla.
+# NOTA: el PROD_ID no distingue -1/-2/-3; si esta placa montara -1 o -3, ajustar
+# gyro_scale en AP_InertialSensor_ADIS1647x.cpp (case PROD_ID_16467).
+IMU ADIS1647x SPI:adis ROTATION_NONE HAL_DRDY_ADIS16467_PIN
+
+# ==================================================================
+# ---- IMU1 (redundancia): Bosch BMI088 por I2C1 (PB6/PB7) ---------
+# ==================================================================
+I2C_ORDER I2C1
+PB6 I2C1_SCL I2C1
+PB7 I2C1_SDA I2C1
+
+# DMA (F4): el driver I2Cv1 del F4 REQUIERE DMA (no admite NODMA en I2C). El
+# conflicto de streams surge porque I2C1 y USART2 (GPS) comparten DMA1 S5/S6.
+# Se resuelve quitando DMA a las UARTs (a 115200 no lo necesitan, van por IRQ),
+# liberando esos streams para el I2C1 y el SPI1 del ADIS.
+NODMA USART* UART5
+
+# Enable del load-switch U6 (VCC_IMU) via R5. OUTPUT HIGH = IMU alimentada al arrancar.
+PB5 VDD_IMU_EN OUTPUT HIGH
+
+# Direccion CONFIRMADA por escaneo: accel 0x19 (id 0x1E) / gyro 0x69 (id 0x0F).
+# BMI088 en polling (INT1-4 sin cablear).
+# Rotacion: la BMI088 esta montada boca abajo + girada 90 en yaw ->
+# ROTATION_ROLL_180_YAW_90. Es POR-IMU (no afecta a la ADIS ni al resto).
+IMU BMI088 I2C:0:0x19 I2C:0:0x69 ROTATION_ROLL_180_YAW_90
+
+# ==================================================================
+# ---- LEDs --------------------------------------------------------
+# ==================================================================
+# LED RGB a bordo (LED1), ANODO COMUN -> ACTIVO BAJO (0 = encendido).
+# Activo-bajo (HAL_GPIO_LED_ON=0) ya es el default de ArduPilot; no se declara
+# (ArduPilot da error si se fija al default). Init OUTPUT HIGH = apagado.
+PB12 LED_R OUTPUT HIGH GPIO(0)
+PB13 LED_G OUTPUT HIGH GPIO(1)
+PB14 LED_B OUTPUT HIGH GPIO(2)
+define AP_NOTIFY_GPIO_LED_RGB_ENABLED 1
+define AP_NOTIFY_GPIO_LED_RGB_RED_PIN 0
+define AP_NOTIFY_GPIO_LED_RGB_GREEN_PIN 1
+define AP_NOTIFY_GPIO_LED_RGB_BLUE_PIN 2
+
+# LEDs de estado (driver ULN2001, ACTIVO ALTO): Power / IMU / GPS, via AP_NMEA_SBY_INS.
+# La lib usa SBY_LED_ACTIVE_HIGH=1 (default), independiente de HAL_GPIO_LED_ON.
+PB0 LED_SBY_RED   OUTPUT HIGH GPIO(81)   # PW  - estado de Power (fijo al energizar)
+PB1 LED_SBY_GREEN OUTPUT LOW  GPIO(82)   # SV  - estado de IMU
+PB2 LED_SBY_BLUE  OUTPUT LOW  GPIO(83)   # RK  - estado de GPS
+define SBY_LED_RED_PIN 81
+define SBY_LED_GREEN_PIN 82
+define SBY_LED_BLUE_PIN 83
+
+# ---- Sin entradas analogicas (ADC) --------------------------------
+define HAL_USE_ADC FALSE
+define STM32_ADC_USE_ADC1 FALSE
+
+# ---- Sin brujula / sin barometro ----------------------------------
+define ALLOW_ARM_NO_COMPASS
+define AP_COMPASS_PROBING_ENABLED 0
+define HAL_BARO_ALLOW_INIT_NO_BARO 1
+
+# ---- Salida NMEA personalizada SBY_INS (GPGGA + PASHR del EKF) ----
+define AP_NMEA_SBY_INS_ENABLED 1
+
+# ---- Backend GPS NMEA (el mosaic-G5 puede emitir NMEA) ----
+define AP_GPS_NMEA_ENABLED 1
+
+# ---- CAN: transceivers en CAN1 (PB9/PB8) y CAN3 (PA15/PA8) --------
+# Sin habilitar por ahora (se agregan cuando haya un periferico DroneCAN).
+
+# ---- Recorte de features (se mantiene, aunque hay 1.5 MB) ---------
+include ../include/minimize_features.inc

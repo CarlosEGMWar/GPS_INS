@@ -1,0 +1,84 @@
+AP_Vehicle: instanciar, parametrizar y agendar AP_NMEA_SBY_INS
+
+EL PARCHE MAS CRITICO DE LA COLA. Si se pierde cualquiera de las inserciones
+en un rebase, el firmware COMPILA Y ENLAZA IGUAL pero se queda sin salida
+NMEA, sin GO_BOOT y sin LEDs de estado, en silencio.
+
+DONDE: libraries/AP_Vehicle/
+  .h    include de AP_NMEA_SBY_INS.h, junto al de AP_NMEA_Output
+        miembro 'AP_NMEA_SBY_INS sby_nmea;' junto al miembro 'nmea'
+  .cpp  AP_SUBGROUPINFO(sby_nmea, SBYN_, 60, ...) en el var_info
+        sby_nmea.init() en init(), junto a nmea.init()
+        SCHED_TASK_CLASS(..., 50, 50, 181) en scheduler_tasks[], junto al 180
+
+QUE PASA SI FALTA CADA UNA:
+  miembro sby_nmea            no compila               (ruidoso, se nota)
+  AP_SUBGROUPINFO SBYN_       sin parametro SBYN_RATE_MS   (SILENCIOSO)
+  sby_nmea.init()             no reclama el puerto         (SILENCIOSO)
+  SCHED_TASK_CLASS            update() no corre NUNCA      (SILENCIOSO)
+
+COMPROBAR SIEMPRE tras aplicar, antes de grabar una placa:
+  strings -n 6 build/SBY_GPS_INS/bin/ardurover.bin | grep -E 'GNGGA|PASHR|GO_BOOT'
+  deben salir las tres
+
+diff --git a/libraries/AP_Vehicle/AP_Vehicle.cpp b/libraries/AP_Vehicle/AP_Vehicle.cpp
+index 5da1fdeeef..e03eeecc02 100644
+--- a/libraries/AP_Vehicle/AP_Vehicle.cpp
++++ b/libraries/AP_Vehicle/AP_Vehicle.cpp
+@@ -134,6 +134,12 @@ const AP_Param::GroupInfo AP_Vehicle::var_info[] = {
+     AP_SUBGROUPINFO(nmea, "NMEA_", 17, AP_Vehicle, AP_NMEA_Output),
+ #endif
+ 
++#if AP_NMEA_SBY_INS_ENABLED
++    // @Group: SBYN_
++    // @Path: ../AP_NMEA_SBY_INS/AP_NMEA_SBY_INS.cpp
++    AP_SUBGROUPINFO(sby_nmea, "SBYN_", 60, AP_Vehicle, AP_NMEA_SBY_INS),
++#endif
++
+ #if AP_DDS_ENABLED
+     // @Group: DDS
+     // @Path: ../AP_DDS/AP_DDS_Client.cpp
+@@ -511,6 +517,10 @@ void AP_Vehicle::setup()
+     nmea.init();
+ #endif
+ 
++#if AP_NMEA_SBY_INS_ENABLED
++    sby_nmea.init();
++#endif
++
+ #if AP_FENCE_ENABLED
+     fence.init();
+     fence_init();
+@@ -631,6 +641,9 @@ const AP_Scheduler::Task AP_Vehicle::scheduler_tasks[] = {
+ #if HAL_NMEA_OUTPUT_ENABLED
+     SCHED_TASK_CLASS(AP_NMEA_Output, &vehicle.nmea,         update,                   50, 50, 180),
+ #endif
++#if AP_NMEA_SBY_INS_ENABLED
++    SCHED_TASK_CLASS(AP_NMEA_SBY_INS, &vehicle.sby_nmea,    update,                   50, 50, 181),
++#endif
+ #if HAL_GYROFFT_ENABLED
+     SCHED_TASK_CLASS(AP_GyroFFT,   &vehicle.gyro_fft,       update,                  400, 50, 205),
+     SCHED_TASK_CLASS(AP_GyroFFT,   &vehicle.gyro_fft,       update_parameters,         1, 50, 210),
+diff --git a/libraries/AP_Vehicle/AP_Vehicle.h b/libraries/AP_Vehicle/AP_Vehicle.h
+index 48308a7146..e0c95b0440 100644
+--- a/libraries/AP_Vehicle/AP_Vehicle.h
++++ b/libraries/AP_Vehicle/AP_Vehicle.h
+@@ -65,6 +65,7 @@
+ #include <AP_CustomRotations/AP_CustomRotations.h>
+ #include <AP_AIS/AP_AIS.h>
+ #include <AP_NMEA_Output/AP_NMEA_Output.h>
++#include <AP_NMEA_SBY_INS/AP_NMEA_SBY_INS.h>     // SBY: salida NMEA custom (EKF)
+ #include <AC_Fence/AC_Fence.h>
+ #include <AP_CheckFirmware/AP_CheckFirmware.h>
+ #include <Filter/LowPassFilter.h>
+@@ -474,6 +475,10 @@ protected:
+     AP_NMEA_Output nmea;
+ #endif
+ 
++#if AP_NMEA_SBY_INS_ENABLED
++    AP_NMEA_SBY_INS sby_nmea;     // SBY: salida NMEA custom alimentada por el EKF
++#endif
++
+ #if AP_KDECAN_ENABLED
+     AP_KDECAN kdecan;
+ #endif

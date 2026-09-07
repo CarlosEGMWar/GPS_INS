@@ -1,0 +1,48 @@
+AP_InertialSensor: reconocer el ADIS16467 (PROD_ID 0x4053)
+
+El driver ADIS1647x de upstream soporta 16470, 16477 y 16507, pero NO el
+16467 que monta la placa.
+
+DONDE: libraries/AP_InertialSensor/AP_InertialSensor_ADIS1647x.cpp
+  #define PROD_ID_16467 0x4053 junto a los otros PROD_ID
+  un case nuevo en el switch de identificacion
+
+SI FALTA: la IMU primaria NO se detecta. La placa arranca solo con la BMI088.
+
+OJO: el PROD_ID no distingue las variantes -1/-2/-3, que difieren en el rango
+del giro. Se fija la escala del -2 (+/-500 deg/s). Si la placa montara otra:
+  -1 -> gyro_scale = radians(1.0/160)
+  -3 -> gyro_scale = radians(1.0/10)
+
+diff --git a/libraries/AP_InertialSensor/AP_InertialSensor_ADIS1647x.cpp b/libraries/AP_InertialSensor/AP_InertialSensor_ADIS1647x.cpp
+index af0997fe1d..69f861d925 100644
+--- a/libraries/AP_InertialSensor/AP_InertialSensor_ADIS1647x.cpp
++++ b/libraries/AP_InertialSensor/AP_InertialSensor_ADIS1647x.cpp
+@@ -24,6 +24,7 @@
+   device registers
+  */
+ #define REG_PROD_ID  0x72
++#define  PROD_ID_16467     0x4053
+ #define  PROD_ID_16470     0x4056
+ #define  PROD_ID_16477     0x405d
+ #define  PROD_ID_16507     0x407b
+@@ -133,6 +134,19 @@ bool AP_InertialSensor_ADIS1647x::check_product_id(uint16_t &prod_id)
+ {
+     prod_id = read_reg16(REG_PROD_ID);
+     switch (prod_id) {
++    case PROD_ID_16467:
++        // ADIS16467-2 (IMU de la placa SBY_GPS_INS): giro +/-500 deg/s, accel +/-40g.
++        // El registro PROD_ID (0x4053) es identico para las variantes -1/-2/-3;
++        // el sufijo de rango NO es legible por software, por eso se fija aqui la
++        // escala correspondiente al -2 (40 LSB/(deg/s), modo Basic de 16 bits).
++        // Si la placa montara otra variante: -1 -> radians(1.0/160); -3 -> radians(1.0/10).
++        opmode = OpMode::Basic;
++        accel_scale = 1.25 * GRAVITY_MSS * 0.001;   // 1.25 mg/LSB (800 LSB/g), igual que 16470/16477
++        _clip_limit = (40.0f - 0.5f) * GRAVITY_MSS;
++        gyro_scale = radians(1.0/40);               // variante -2: +/-500 deg/s
++        expected_sample_rate_hz = 2000;
++        return true;
++
+     case PROD_ID_16470:
+         // can do up to 40G
+         opmode = OpMode::Basic;

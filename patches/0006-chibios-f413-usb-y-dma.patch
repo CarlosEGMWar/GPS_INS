@@ -1,0 +1,43 @@
+AP_HAL_ChibiOS: STM32F413 - alias OTG_FS y DMA de I2C1_TX
+
+DONDE: libraries/AP_HAL_ChibiOS/hwdef/scripts/STM32F413xx.py
+  AltFunction_map : anadir PA11:OTG_FS_DM y PA12:OTG_FS_DP (valor 10)
+  DMA_Map         : quitar la opcion (1,1,0) de I2C1_TX
+
+POR QUE:
+  1. El DB del F413 solo trae USB_FS_*, que el generador no reconoce; el F405
+     usa OTG_FS_*. Sin el alias no hay USB en la placa.
+  2. El F413 permite I2C1_TX en Stream 1, pero el driver I2Cv1 de ChibiOS solo
+     acepta Stream 6/7. Con la opcion mala el I2C1 (BMI088) no arranca.
+
+SI FALTA: el hwdef ni siquiera se genera. Falla el configure (ruidoso).
+
+diff --git a/libraries/AP_HAL_ChibiOS/hwdef/scripts/STM32F413xx.py b/libraries/AP_HAL_ChibiOS/hwdef/scripts/STM32F413xx.py
+index 6af7f20306..a81523be6a 100644
+--- a/libraries/AP_HAL_ChibiOS/hwdef/scripts/STM32F413xx.py
++++ b/libraries/AP_HAL_ChibiOS/hwdef/scripts/STM32F413xx.py
+@@ -47,7 +47,7 @@ DMA_Map = {
+ 	"DFSDM2_FLT2"	:	[(2,2,8),(2,6,8)],
+ 	"DFSDM2_FLT3"	:	[(2,3,8),(2,7,8)],
+ 	"I2C1_RX" 	:	[(1,0,1),(1,5,1)],
+-	"I2C1_TX" 	:	[(1,1,0),(1,6,1),(1,7,1)],
++	"I2C1_TX" 	:	[(1,6,1),(1,7,1)],
+ 	"I2C2_RX" 	:	[(1,2,7),(1,3,7)],
+ 	"I2C2_TX" 	:	[(1,7,7)],
+ 	"I2C3_RX" 	:	[(1,1,1),(1,2,3)],
+@@ -242,6 +242,7 @@ AltFunction_map = {
+ 	"PA11:USART1_CTS"   	:	7,
+ 	"PA11:USART6_TX"    	:	8,
+ 	"PA11:USB_FS_DM"    	:	10,
++	"PA11:OTG_FS_DM"	:	10,
+ 	"PA12:CAN1_TX"      	:	9,
+ 	"PA12:DFSDM2_DATIN5"	:	3,
+ 	"PA12:EVENTOUT"     	:	15,
+@@ -252,6 +253,7 @@ AltFunction_map = {
+ 	"PA12:USART1_RTS"   	:	7,
+ 	"PA12:USART6_RX"    	:	8,
+ 	"PA12:USB_FS_DP"    	:	10,
++	"PA12:OTG_FS_DP"	:	10,
+ 	"PA13:EVENTOUT"     	:	15,
+ 	"PA13:JTMS-SWDIO"   	:	0,
+ 	"PA14:EVENTOUT"     	:	15,

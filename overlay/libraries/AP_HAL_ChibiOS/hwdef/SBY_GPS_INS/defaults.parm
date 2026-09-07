@@ -1,0 +1,35 @@
+# Parametros por defecto - SBY_GPS_INS (Rover sin brujula)
+# Se embeben en el firmware y se aplican en el primer arranque / tras un reset
+# de parametros. Se pueden modificar luego desde Mission Planner.
+
+# ---- Brujula deshabilitada (la placa no tiene magnetometro) ----
+COMPASS_ENABLE,0
+COMPASS_USE,0
+COMPASS_USE2,0
+COMPASS_USE3,0
+COMPASS_AUTO_ROT,0
+
+# ---- Rumbo (yaw) del EKF3 sin brujula ----
+# GSF = estimador que deriva el rumbo a partir del movimiento del GPS.
+# El Rover obtiene heading una vez que empieza a moverse.
+EK3_SRC1_YAW,8
+
+# ---- Sin barometro: altura del EKF3 desde el GPS (no Baro) ----
+EK3_SRC1_POSZ,3
+
+# ---- GPS ----
+# El GPS esta en SERIAL3 (USART2). El receptor emite NMEA (GGA/RMC) a 115200.
+# GPS1_TYPE=5 (NMEA forzado): el auto-detect (=1) NO toma el NMEA del mosaic de
+# forma fiable (verificado 2026-08-25). En 4.8 el parametro es GPS1_TYPE (no GPS_TYPE).
+GPS1_TYPE,5
+SERIAL3_BAUD,115
+
+# NOTA: el resto de los puertos tiene sus defaults horneados en el firmware
+# (hwdef.dat), no hace falta fijarlos como parametros aqui:
+#   SERIAL0 = USB   (OTG1)          -> MAVLink2 115200
+#   SERIAL1 = USART1 (PA9/PA10)     -> NMEA_SBY_INS 115200
+#   SERIAL2 = UART5  (PC12/PD2)     -> MAVLink2 115200 (companion WL52, RS232)
+#   SERIAL4 = USART6 (PC6/PC7)      -> MAVLink2 115200 (TTL 3.3V, WL52 G3/G4)
+# OJO: en Mission Planner el USART6 del micro aparece como SERIAL4_*, NO como
+# "SERIAL6". La numeracion SERIALx sigue el orden de SERIAL_ORDER del hwdef, no
+# el numero de periferico del STM32.

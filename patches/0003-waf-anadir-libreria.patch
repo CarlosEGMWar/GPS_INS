@@ -1,0 +1,22 @@
+waf: anadir AP_NMEA_SBY_INS a las librerias de vehiculo
+
+Los vehiculos compilan una lista curada, no un glob de libraries/.
+
+DONDE: Tools/ardupilotwaf/ardupilotwaf.py
+  una linea en COMMON_VEHICLE_DEPENDENT_LIBRARIES, tras 'AP_NMEA_Output'
+
+SI FALTA: el linker da 'undefined reference to AP_NMEA_SBY_INS::init/update'
+(ruidoso, se nota al compilar).
+
+diff --git a/Tools/ardupilotwaf/ardupilotwaf.py b/Tools/ardupilotwaf/ardupilotwaf.py
+index 3cc2cdfbc1..fe2e23e9d4 100644
+--- a/Tools/ardupilotwaf/ardupilotwaf.py
++++ b/Tools/ardupilotwaf/ardupilotwaf.py
+@@ -98,6 +98,7 @@ COMMON_VEHICLE_DEPENDENT_LIBRARIES = [
+     'AP_LandingGear',
+     'AP_RobotisServo',
+     'AP_NMEA_Output',
++    'AP_NMEA_SBY_INS',     # SBY: salida NMEA custom alimentada por el EKF (gateada por AP_NMEA_SBY_INS_ENABLED)
+     'AP_OSD',
+     'AP_Filesystem',
+     'AP_ADSB',

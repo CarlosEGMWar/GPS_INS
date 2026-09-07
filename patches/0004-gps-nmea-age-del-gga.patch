@@ -1,0 +1,70 @@
+AP_GPS: parsear el campo 13 del GGA (age of differential)
+
+El mosaic-G5 habla NMEA y publica ahi la antiguedad de las correcciones
+RTK/DGNSS. Se guarda en state.rtk_age_ms y se expone con get_rtk_age_ms(),
+para reemitirla en el campo 13 del GGA propio de SBY.
+
+DONDE: libraries/AP_GPS/
+  AP_GPS.h        miembro rtk_age_ms en GPS_State + getters get_rtk_age_ms()
+  AP_GPS_NMEA.h   miembro _new_gga_age_ms
+  AP_GPS_NMEA.cpp case _GPS_SENTENCE_GGA + 13 y volcado al completar la trama
+
+SI FALTA: el firmware funciona igual, solo que el campo 13 del GGA sale vacio.
+Es una funcionalidad, no un requisito.
+
+diff --git a/libraries/AP_GPS/AP_GPS.h b/libraries/AP_GPS/AP_GPS.h
+index e8aab3a094..2caf03d198 100644
+--- a/libraries/AP_GPS/AP_GPS.h
++++ b/libraries/AP_GPS/AP_GPS.h
+@@ -331,6 +331,16 @@ public:
+         return location(primary_instance);
+     }
+ 
++    // age of last differential/RTK correction in milliseconds (0 if none,
++    // 0xFFFFFFFF indicates overflow). Poblado por SBF y por el backend NMEA
++    // (campo 13 del GGA entrante).
++    uint32_t get_rtk_age_ms(uint8_t instance) const {
++        return state[instance].rtk_age_ms;
++    }
++    uint32_t get_rtk_age_ms() const {
++        return get_rtk_age_ms(primary_instance);
++    }
++
+     // get the difference between WGS84 and AMSL. A positive value means
+     // the AMSL height is higher than WGS84 ellipsoid height
+     bool get_undulation(uint8_t instance, float &undulation) const;
+diff --git a/libraries/AP_GPS/AP_GPS_NMEA.cpp b/libraries/AP_GPS/AP_GPS_NMEA.cpp
+index c9384bde32..7a0db4923d 100644
+--- a/libraries/AP_GPS/AP_GPS_NMEA.cpp
++++ b/libraries/AP_GPS/AP_GPS_NMEA.cpp
+@@ -335,6 +335,7 @@ bool AP_GPS_NMEA::_term_complete()
+                 }
+                 state.num_sats      = _new_satellite_count;
+                 state.hdop          = _new_hdop;
++                state.rtk_age_ms    = _new_gga_age_ms; // age of differential corrections (GGA campo 13)
+                 switch(_new_quality_indicator) {
+                 case 0: // Fix not available or invalid
+                     state.status = AP_GPS::NO_FIX;
+@@ -590,6 +591,10 @@ bool AP_GPS_NMEA::_term_complete()
+         case _GPS_SENTENCE_GGA + 8: // HDOP (GGA)
+             _new_hdop = (uint16_t)_parse_decimal_100(_term);
+             break;
++        case _GPS_SENTENCE_GGA + 13: // age of differential corrections (GGA), en segundos
++            // vacio => sin correcciones (0). Se guarda en ms para rtk_age_ms.
++            _new_gga_age_ms = (_term[0] != 0) ? (uint32_t)(atof(_term) * 1000.0) : 0;
++            break;
+ 
+         // time and date
+         //
+diff --git a/libraries/AP_GPS/AP_GPS_NMEA.h b/libraries/AP_GPS/AP_GPS_NMEA.h
+index 3109600b4e..7549015bf0 100644
+--- a/libraries/AP_GPS/AP_GPS_NMEA.h
++++ b/libraries/AP_GPS/AP_GPS_NMEA.h
+@@ -170,6 +170,7 @@ private:
+     int32_t _new_course;                                        ///< course parsed from a term
+     float   _new_gps_yaw;                                        ///< yaw parsed from a term
+     uint16_t _new_hdop;                                                 ///< HDOP parsed from a term
++    uint32_t _new_gga_age_ms;                                           ///< age of differential (GGA field 13) in ms, 0 if none
+     uint8_t _new_satellite_count;                       ///< satellite count parsed from a term
+     uint8_t _new_quality_indicator;                                     ///< GPS quality indicator parsed from a term
+ 
