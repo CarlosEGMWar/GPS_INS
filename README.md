@@ -20,10 +20,6 @@ formatos de grabación. Los tres contienen el mismo firmware:
 | `ardurover_with_bl.bin` | DFU por USB, o cable serie |
 | `ardurover.apj` | Mission Planner o `uploader.py`, por USB **o por USART1** |
 
-Cada release se llama `Rover-<versión de ArduPilot>-SBY-<versión del firmware>`,
-así que dice de un vistazo contra qué se construyó. Las huellas SHA-256 van en el
-cuerpo de la release.
-
 Comandos y direcciones: [sección 10](#10-qué-sale-en-dist-y-cómo-se-graba).
 
 ---
