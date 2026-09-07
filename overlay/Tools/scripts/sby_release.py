@@ -33,6 +33,7 @@ Solo depende de la libreria estandar de Python 3.
 import argparse
 import base64
 import hashlib
+import io
 import json
 import os
 import platform
@@ -93,6 +94,24 @@ def read(path):
 
 def human(n):
     return "%s bytes (%.1f KiB)" % ("{:,}".format(n).replace(",", "."), n / 1024.0)
+
+
+def datos_git(repo):
+    """devuelve (commit, tag, sucio) de un repo git, o (None, None, None)"""
+    def correr(*args):
+        try:
+            r = subprocess.run(["git", "-C", repo] + list(args),
+                               capture_output=True, text=True, timeout=30)
+            return r.stdout.strip() if r.returncode == 0 else ""
+        except Exception:
+            return ""
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        return None, None, None
+    commit = correr("rev-parse", "--short", "HEAD") or None
+    tag = (correr("describe", "--tags", "--exact-match", "HEAD")
+           or correr("describe", "--tags", "--abbrev=0") or None)
+    sucio = bool(correr("status", "--porcelain", "--ignore-submodules=dirty"))
+    return commit, tag, sucio
 
 
 def hwdef_value(key, default=None):
@@ -379,24 +398,52 @@ def package(outdir, allow_dirty):
     emit(BINARY + ".apj", read(apj_path), "ArduPilot / Mission Planner")
 
     # ---------------------------------------------------------- manifiesto
-    git = ""
-    try:
-        git = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT,
-                             capture_output=True, text=True).stdout.strip()
-        dirty = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT,
-                               capture_output=True, text=True).stdout.strip()
-    except Exception:
-        dirty = ""
+    # Un firmware queda identificado por DOS cosas, no una:
+    #   - la version de ArduPilot sobre la que se construyo  (arbol ROOT)
+    #   - la version de los cambios de SBY que se le aplicaron (repo de la cola)
+    # Sin la segunda no se puede reproducir el binario: cambiar el hwdef.dat y
+    # recompilar sobre el mismo release daria un manifest identico.
+    git, tag_ap, dirty = datos_git(ROOT)
+    git = git or ""
 
-    if dirty and not allow_dirty:
-        print("\n   AVISO: el arbol tiene cambios sin commitear. Los binarios NO se")
-        print("          corresponden con el commit %s. Usa --allow-dirty para" % (git or "?"))
-        print("          silenciar este aviso.")
+    # El repo de la cola de parches: ROOT suele ser <cola>/build/ardupilot
+    cola = os.path.abspath(os.path.join(ROOT, "..", ".."))
+    sby_commit, sby_tag, sby_sucio = datos_git(cola)
+
+    # La version de ArduPilot la dice el archivo UPSTREAM, que es la fuente
+    # autoritativa. 'git describe' no sirve: hay varios tags en el mismo commit
+    # (Rover-4.7.1 y APMrover2-beta, por ejemplo) y elige uno cualquiera.
+    ruta_upstream = os.path.join(cola, "UPSTREAM")
+    if os.path.exists(ruta_upstream):
+        try:
+            primera = io.open(ruta_upstream, encoding="utf-8").readline().strip()
+            if primera:
+                tag_ap = primera
+        except Exception:
+            pass
+
+    # El arbol de ArduPilot SIEMPRE esta "sucio" (lleva los parches aplicados),
+    # asi que avisar de eso no informa de nada. Lo que importa es si el repo de
+    # la cola tenia cambios sin commitear: eso si hace el binario irreproducible.
+    if sby_sucio and not allow_dirty:
+        print("\n   AVISO: el repo de la cola tiene cambios sin commitear.")
+        print("          Este binario NO se puede reproducir desde el commit %s."
+              % (sby_commit or "?"))
+        print("          Commitea antes de publicarlo, o usa --allow-dirty.")
 
     manifest = {
         "board": BOARD,
         "vehicle": VEHICLE,
         "generado_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        # --- de que se construyo: ArduPilot ---
+        "ardupilot_commit": git,
+        "ardupilot_tag": tag_ap,
+        "ardupilot_dirty": bool(dirty),      # true = tiene los parches aplicados
+        # --- de que se construyo: los cambios de SBY ---
+        "sby_commit": sby_commit,
+        "sby_tag": sby_tag,
+        "sby_dirty": sby_sucio,              # true = habia cambios sin commitear
+        # compatibilidad con manifests anteriores
         "git_commit": git,
         "git_dirty": bool(dirty),
         "apj_board_id": apj.get("board_id"),
@@ -415,7 +462,9 @@ def package(outdir, allow_dirty):
     mpath = os.path.join(outdir, "manifest.json")
     with open(mpath, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
-    info("manifest.json              (commit %s%s)" % (git or "?", ", SUCIO" if dirty else ""))
+    info("manifest.json              (ArduPilot %s / SBY %s%s)"
+         % (tag_ap or git or "?", sby_tag or sby_commit or "?",
+            ", SUCIO" if sby_sucio else ""))
 
     # ------------------------------------------------------------- resumen
     print("""

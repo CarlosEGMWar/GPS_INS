@@ -106,7 +106,7 @@ paso "4. compilando $PLACA"
 compilar
 
 paso "5. empaquetando en dist/"
-empaquetar
+empaquetar --avisar-si-sucio
 
 paso "6. verificando"
 "$REPO/scripts/verificar.sh" || morir "la verificacion fallo: NO grabes este firmware"

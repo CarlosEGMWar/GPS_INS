@@ -91,24 +91,21 @@ asegurar_eol() {
     fi
 }
 
-# Retira del arbol exactamente los archivos que aporta overlay/, y las carpetas
-# que queden vacias. Se deriva de overlay/ en vez de una lista fija, para que
-# archivos nuevos se limpien solos sin tocar este script.
-# Solo borra archivos NO versionados: nunca se lleva nada de ArduPilot.
+# Devuelve el arbol a ArduPilot puro: quita TODO lo no versionado.
+#
+# Se usa 'git clean -fd' y no una lista derivada de overlay/, porque esa lista
+# deja huerfanos: si un archivo del overlay se renombra o se quita, la copia
+# vieja se queda en el arbol para siempre y el reset nunca da limpio.
+#
+# 'clean' SIN -x respeta el .gitignore de ArduPilot, donde 'build' esta
+# listado. Asi que la cache de compilacion (~140 MB) sobrevive y los rebuilds
+# siguen siendo incrementales. Con -x se la llevaria y cada ciclo costaria
+# 10 minutos de recompilacion completa.
 limpiar_overlay() {
-    local n=0 rel destino
-    while IFS= read -r -d '' rel; do
-        rel="${rel#./}"
-        destino="$AP/$rel"
-        [ -e "$destino" ] || continue
-        if git -C "$AP" ls-files --error-unmatch "$rel" >/dev/null 2>&1; then
-            continue            # es de ArduPilot: no tocar
-        fi
-        rm -f "$destino"
-        rmdir -p "$(dirname "$destino")" 2>/dev/null   # solo si quedan vacias
-        n=$((n+1))
-    done < <(cd "$REPO/overlay" && find . -type f -print0)
-    info "$n archivos del overlay retirados"
+    local n
+    n=$(git -C "$AP" clean -nd | wc -l)
+    git -C "$AP" clean -fdq
+    info "$n archivos/carpetas no versionados retirados"
 }
 
 copiar_overlay() {
@@ -131,9 +128,15 @@ compilar() {
     grep -A4 "BUILD SUMMARY" /tmp/sby_bld.log | tail -2 | sed 's/^/   /'
 }
 
+# empaquetar [--avisar-si-sucio]
+#   Sin el flag no avisa de cambios sin commitear: en desarrollo es lo normal
+#   y seria ruido. Con el flag si avisa, porque un binario construido desde
+#   un repo sucio NO se puede reproducir, y eso importa al publicar.
 empaquetar() {
     mkdir -p "$DIST"
-    ( cd "$AP" && python3 Tools/scripts/sby_release.py --skip-build --allow-dirty -o "$DIST" ) \
-        | grep -E "^   (ardurover|manifest|apj|hex|bin)" | sed 's/^/  /'
+    local extra="--allow-dirty"
+    [ "${1:-}" = "--avisar-si-sucio" ] && extra=""
+    ( cd "$AP" && python3 Tools/scripts/sby_release.py --skip-build $extra -o "$DIST" ) \
+        | grep -E "^ *(ardurover|manifest|apj|hex|bin|AVISO|Commitea|Este binario)" | sed 's/^/  /'
     info "binarios en dist/"
 }
