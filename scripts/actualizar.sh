@@ -3,61 +3,79 @@
 #  actualizar.sh  -  CICLO LIMPIO: ArduPilot virgen + overlay + parches
 # ============================================================================
 #
-#    ./scripts/actualizar.sh                reconstruye con la version de UPSTREAM
-#    ./scripts/actualizar.sh --buscar       mira si ArduPilot saco un release nuevo
-#    ./scripts/actualizar.sh Rover-4.7.2    salta a esa version
+#    ./scripts/actualizar.sh                reconstruye SOBRE LO QUE HAYA EN CHECKOUT
+#    ./scripts/actualizar.sh Rover-4.7.2    cambia a esa version
+#    ./scripts/actualizar.sh --buscar       mira que releases hay
+#
+#  No hay ningun archivo que fije la version de ArduPilot: la manda el arbol.
+#  Si haces 'git checkout' a mano dentro de build/ardupilot, este script lo
+#  respeta y compila contra eso. Solo cambia de version si se la pides.
+#  Si todavia no hay ArduPilot descargado, coge el ultimo release de Rover.
 #
 #  OJO: este script hace 'git reset --hard' sobre build/ardupilot.
 #  PIERDES cualquier cosa que tengas editada ahi sin guardar.
 #  Para desarrollo del dia a dia usa  compilar.sh,  que no resetea.
 #
 #  Que hace, en orden:
-#    1. deja build/ardupilot en la version de UPSTREAM, virgen
+#    1. deja build/ardupilot virgen en la version que toque
 #    2. copia overlay/            -> tus archivos propios
 #    3. aplica patches/ en orden  -> CORTA en el primero que falle
 #    4. compila
 #    5. genera dist/ (.hex .bin .apj) y verifica
-#    6. si saltaste de version y todo fue bien, actualiza el archivo UPSTREAM
 #
 #  Antes de todo eso fuerza core.autocrlf=false en el arbol: si se clono en
 #  Windows viene en CRLF, y entonces git desde WSL ve los ~6000 archivos como
 #  modificados y waf muere al generar el .hex.
 # ============================================================================
 set -u
-source "$(dirname "${BASH_SOURCE[0]}")/comun.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/interno/comun.sh"
 
 NUEVA=""
 case "${1:-}" in
     --buscar)
-        comprobar_entorno
-        actual=$(head -1 "$REPO/UPSTREAM")
-        echo "version actual: $actual"
+        actual=$(version_ardupilot)
+        echo "version en checkout: ${actual:-(todavia no hay ArduPilot descargado)}"
         echo "consultando releases de Rover en ArduPilot..."
-        git -C "$AP" ls-remote --tags origin 2>/dev/null \
-            | grep -oE 'Rover-[0-9.]+$' | sort -V | tail -5 | sed 's/^/   /'
+        git ls-remote --tags --refs https://github.com/ArduPilot/ardupilot.git 'Rover-*' 2>/dev/null \
+            | sed -E 's#.*refs/tags/##' | grep -E '^Rover-[0-9.]+$' | sort -V | tail -5 | sed 's/^/   /'
         echo
-        echo "para saltar:  ./scripts/actualizar.sh Rover-X.Y.Z"
+        echo "para cambiar:  ./scripts/actualizar.sh Rover-X.Y.Z"
         exit 0 ;;
-    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
     "") ;;
     *) NUEVA="$1" ;;
 esac
 
 echo "actualizar.sh  -  ciclo limpio"
-comprobar_entorno
 
-VERSION=$(head -1 "$REPO/UPSTREAM")
-[ -n "$NUEVA" ] && VERSION="$NUEVA"
-info "objetivo: $VERSION"
+# Si no hay ArduPilot todavia, preparar.sh lo descarga. Se le pasa la version
+# pedida; si no se pidio ninguna, el coge el ultimo release.
+export SBY_VERSION_AP="$NUEVA"
+comprobar_entorno
+unset SBY_VERSION_AP
+
+if [ -n "$NUEVA" ]; then
+    VERSION="$NUEVA"
+    info "objetivo: $VERSION  (pedido en la linea de ordenes)"
+else
+    VERSION=$(version_ardupilot)
+    [ -n "$VERSION" ] || morir "no se en que version esta build/ardupilot"
+    info "objetivo: $VERSION  (lo que hay en checkout; no se toca)"
+fi
 
 asegurar_eol
 
 paso "1. dejando ArduPilot virgen en $VERSION"
-if ! git -C "$AP" rev-parse --verify "$VERSION" >/dev/null 2>&1; then
-    info "la version $VERSION no esta en local, descargandola..."
-    git -C "$AP" fetch origin --tags || morir "no pude traer $VERSION"
+# Solo se hace checkout si se pidio una version distinta. Sin argumento se
+# resetea sobre el HEAD actual, sea un tag, una rama o un commit suelto: asi
+# un checkout hecho a mano sobrevive al ciclo limpio.
+if [ -n "$NUEVA" ]; then
+    if ! git -C "$AP" rev-parse --verify "$VERSION" >/dev/null 2>&1; then
+        info "la version $VERSION no esta en local, descargandola..."
+        git -C "$AP" fetch origin --tags || morir "no pude traer $VERSION"
+    fi
+    git -C "$AP" checkout -q --detach "$VERSION" 2>/dev/null || morir "no existe la version $VERSION"
 fi
-git -C "$AP" checkout -q --detach "$VERSION" 2>/dev/null || morir "no existe la version $VERSION"
 git -C "$AP" reset --hard -q HEAD
 limpiar_overlay
 sucio=$(git -C "$AP" status --porcelain --ignore-submodules=dirty | wc -l)
@@ -109,15 +127,7 @@ paso "5. empaquetando en dist/"
 empaquetar --avisar-si-sucio
 
 paso "6. verificando"
-"$REPO/scripts/verificar.sh" || morir "la verificacion fallo: NO grabes este firmware"
-
-if [ -n "$NUEVA" ]; then
-    paso "7. fijando la nueva version en UPSTREAM"
-    sha=$(git -C "$AP" rev-parse HEAD)
-    printf '%s\n%s\n' "$NUEVA" "$sha" > "$REPO/UPSTREAM"
-    info "UPSTREAM -> $NUEVA ($sha)"
-    info "acuerdate de commitear el cambio de UPSTREAM"
-fi
+"$REPO/scripts/interno/verificar.sh" || morir "la verificacion fallo: NO grabes este firmware"
 
 echo
 verde "LISTO.  Firmware en dist/  -  construido sobre $VERSION"

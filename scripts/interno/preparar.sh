@@ -8,7 +8,7 @@
 #  solo hace lo que falte.
 #
 #  Se encarga de:
-#    1. descargar ArduPilot en la version que dice UPSTREAM
+#    1. descargar ArduPilot (la version que se le pase, o el ultimo Rover-*)
 #    2. sus submodulos (ChibiOS, mavlink, ...)
 #    3. las dependencias de Python
 #    4. el compilador ARM, si no lo tienes ya
@@ -40,7 +40,16 @@ command -v strings >/dev/null || morir "falta 'strings' (paquete binutils).
 # ------------------------------------------------------- 2. ArduPilot
 if [ ! -d "$AP/.git" ]; then
     falta_algo=1
-    VERSION=$(head -1 "$REPO/UPSTREAM")
+    # Que version. No hay ningun archivo que la fije: o la dice quien llama
+    # (actualizar.sh la pasa en SBY_VERSION_AP) o se coge el ultimo release.
+    VERSION="${SBY_VERSION_AP:-}"
+    if [ -z "$VERSION" ]; then
+        paso "Averiguando el ultimo release de Rover"
+        VERSION=$(ultima_rover)
+        [ -n "$VERSION" ] || morir "no pude consultar los releases de ArduPilot.
+     Indica la version a mano:  ./scripts/actualizar.sh Rover-4.7.1"
+        info "el mas reciente es $VERSION"
+    fi
     paso "Descargando ArduPilot (~880 MB, solo esta vez)"
     info "version: $VERSION"
     mkdir -p "$(dirname "$AP")"

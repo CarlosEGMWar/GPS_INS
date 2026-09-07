@@ -108,7 +108,13 @@ def datos_git(repo):
     if not os.path.isdir(os.path.join(repo, ".git")):
         return None, None, None
     commit = correr("rev-parse", "--short", "HEAD") or None
-    tag = (correr("describe", "--tags", "--exact-match", "HEAD")
+    # Puede haber varios tags en el mismo commit (Rover-4.7.1 y APMrover2-beta,
+    # por ejemplo) y 'describe' elige uno cualquiera. Si alguno es Rover-*, ese
+    # manda; es el que identifica el release contra el que se construyo.
+    encima = [t for t in correr("tag", "--points-at", "HEAD").split("\n") if t]
+    rover = sorted(t for t in encima if t.startswith("Rover-"))
+    tag = (rover[-1] if rover
+           else correr("describe", "--tags", "--exact-match", "HEAD")
            or correr("describe", "--tags", "--abbrev=0") or None)
     sucio = bool(correr("status", "--porcelain", "--ignore-submodules=dirty"))
     return commit, tag, sucio
@@ -300,7 +306,7 @@ def build_app(builder):
 
 # ------------------------------------------------------------ empaquetado
 
-def package(outdir, allow_dirty):
+def package(outdir, allow_dirty, manifest_path=None):
     step("Recogiendo los ficheros del build")
 
     app_bin_path = os.path.join(BUILD_BIN_DIR, BINARY + ".bin")
@@ -410,17 +416,9 @@ def package(outdir, allow_dirty):
     cola = os.path.abspath(os.path.join(ROOT, "..", ".."))
     sby_commit, sby_tag, sby_sucio = datos_git(cola)
 
-    # La version de ArduPilot la dice el archivo UPSTREAM, que es la fuente
-    # autoritativa. 'git describe' no sirve: hay varios tags en el mismo commit
-    # (Rover-4.7.1 y APMrover2-beta, por ejemplo) y elige uno cualquiera.
-    ruta_upstream = os.path.join(cola, "UPSTREAM")
-    if os.path.exists(ruta_upstream):
-        try:
-            primera = io.open(ruta_upstream, encoding="utf-8").readline().strip()
-            if primera:
-                tag_ap = primera
-        except Exception:
-            pass
+    # La version de ArduPilot sale del propio arbol (datos_git ya prefiere el tag
+    # Rover-*). No hay ningun archivo que la fije: asi un checkout hecho a mano
+    # se refleja solo, sin nada que mantener sincronizado.
 
     # El arbol de ArduPilot SIEMPRE esta "sucio" (lleva los parches aplicados),
     # asi que avisar de eso no informa de nada. Lo que importa es si el repo de
@@ -459,12 +457,21 @@ def package(outdir, allow_dirty):
             {"nombre": n, "bytes": s, "sha256": h, "para": p} for n, s, h, p in salidas
         ],
     }
-    mpath = os.path.join(outdir, "manifest.json")
-    with open(mpath, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2, ensure_ascii=False)
-    info("manifest.json              (ArduPilot %s / SBY %s%s)"
+    # NO se escribe ningun manifest. Todos estos datos se pueden calcular en el
+    # momento (git status, sha256sum, stat), asi que un archivo mas solo anade
+    # algo que mantener y que puede quedarse viejo. Se imprimen y ya.
+    #
+    # Con --manifest se puede pedir el JSON igualmente, para automatizar.
+    info("ArduPilot %s   SBY %s%s"
          % (tag_ap or git or "?", sby_tag or sby_commit or "?",
-            ", SUCIO" if sby_sucio else ""))
+            "   (repo SUCIO)" if sby_sucio else ""))
+    if manifest_path:
+        mdir = os.path.dirname(os.path.abspath(manifest_path))
+        if mdir and not os.path.isdir(mdir):
+            os.makedirs(mdir)
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2, ensure_ascii=False)
+        info("manifest -> %s" % manifest_path)
 
     # ------------------------------------------------------------- resumen
     print("""
@@ -503,6 +510,10 @@ def main():
                     help="no compilar, empaquetar lo que ya haya en build/")
     ap.add_argument("--bootloader", action="store_true",
                     help="recompilar tambien el bootloader antes del firmware")
+    ap.add_argument("--manifest", default=None,
+                    help="escribir ademas un manifest.json en esa ruta. Por "
+                         "defecto NO se genera: los datos se imprimen y punto, "
+                         "para no dejar un archivo que pueda quedarse viejo")
     ap.add_argument("--allow-dirty", action="store_true",
                     help="no avisar si hay cambios sin commitear")
     ap.add_argument("--no-wsl", action="store_true",
@@ -521,7 +532,8 @@ def main():
             build_app(builder)
         else:
             step("Compilacion omitida (--skip-build)")
-        package(os.path.abspath(args.outdir), args.allow_dirty)
+        package(os.path.abspath(args.outdir), args.allow_dirty,
+                os.path.abspath(args.manifest) if args.manifest else None)
     except Fail as e:
         print("\nERROR: %s" % e, file=sys.stderr)
         return 1

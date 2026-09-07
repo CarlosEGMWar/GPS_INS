@@ -40,7 +40,6 @@ paso "artefactos de programacion en dist/"
 chk "ardurover_with_bl.hex  (ST-LINK / SWD)" "[ -s '$DIST/ardurover_with_bl.hex' ]"
 chk "ardurover_with_bl.bin  (DFU y UART)"    "[ -s '$DIST/ardurover_with_bl.bin' ]"
 chk "ardurover.apj          (ArduPilot/MP)"  "[ -s '$DIST/ardurover.apj' ]"
-chk "manifest.json"                          "[ -s '$DIST/manifest.json' ]"
 
 paso "ocupacion de flash"
 if [ -f /tmp/sby_bld.log ]; then

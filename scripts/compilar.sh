@@ -21,7 +21,7 @@
 #  Para el ciclo limpio desde cero usa  actualizar.sh  en su lugar.
 # ============================================================================
 set -u
-source "$(dirname "${BASH_SOURCE[0]}")/comun.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/interno/comun.sh"
 
 SIN_OVERLAY=0; SIN_DIST=0
 for a in "$@"; do
@@ -62,7 +62,7 @@ if [ "$SIN_DIST" -eq 0 ]; then
     paso "4. empaquetando"
     empaquetar
     paso "5. verificando"
-    "$REPO/scripts/verificar.sh" || morir "la verificacion fallo"
+    "$REPO/scripts/interno/verificar.sh" || morir "la verificacion fallo"
 else
     info "dist/ omitido (--sin-dist)"
 fi

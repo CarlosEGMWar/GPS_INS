@@ -1,7 +1,7 @@
 #!/bin/bash
 # Funciones y rutas compartidas por los scripts. No se ejecuta suelto.
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 AP="$REPO/build/ardupilot"
 DIST="$REPO/dist"
 PLACA="SBY_GPS_INS"
@@ -40,6 +40,30 @@ if ! command -v arm-none-eabi-gcc >/dev/null 2>&1; then
 fi
 [ -d "$HOME/.local/bin" ] && export PATH="$PATH:$HOME/.local/bin"
 
+# ---------------------------------------------------------------------------
+# La version de ArduPilot NO se guarda en ningun archivo: se le pregunta al
+# arbol. Asi un checkout hecho a mano se respeta solo, sin nada que sincronizar.
+#
+# 'git describe' a secas no vale: hay commits con varios tags encima
+# (Rover-4.7.1 y APMrover2-beta, por ejemplo) y elige uno cualquiera. Se filtra
+# por Rover-* y se coge el mayor.
+# ---------------------------------------------------------------------------
+version_ardupilot() {
+    local t
+    [ -d "$AP/.git" ] || { echo ""; return; }
+    t=$(git -C "$AP" tag --points-at HEAD 2>/dev/null \
+        | grep -E '^Rover-[0-9]' | sort -V | tail -1)
+    [ -n "$t" ] || t=$(git -C "$AP" describe --tags --abbrev=0 2>/dev/null)
+    [ -n "$t" ] || t=$(git -C "$AP" rev-parse --short HEAD 2>/dev/null)
+    echo "$t"
+}
+
+# Ultimo release de Rover publicado. Funciona sin tener ArduPilot descargado.
+ultima_rover() {
+    git ls-remote --tags --refs https://github.com/ArduPilot/ardupilot.git 'Rover-*' 2>/dev/null \
+        | sed -E 's#.*refs/tags/##' | grep -E '^Rover-[0-9.]+$' | sort -V | tail -1
+}
+
 rojo()  { printf '\033[31m%s\033[0m\n' "$*"; }
 verde() { printf '\033[32m%s\033[0m\n' "$*"; }
 paso()  { printf '\n== %s\n' "$*"; }
@@ -47,11 +71,38 @@ info()  { printf '   %s\n' "$*"; }
 
 morir() { echo; rojo "ERROR: $*"; exit 1; }
 
+# ---------------------------------------------------------------------------
+# La ruta no puede llevar espacios.
+#
+# No es cosa nuestra: la tarea modules/ChibiOS/include_dirs de ArduPilot arma
+# una orden de shell sin comillas, la ruta se parte y falla con
+#
+#     /bin/sh: 1: gps: not found        (por .../test gps ins/...)
+#
+# Lo malo es cuando avisa: 'waf configure' pasa, los parches se aplican, y
+# revienta en mitad de la compilacion con un mensaje que no menciona los
+# espacios. Mejor cortar aqui, antes de descargar 2,4 GB.
+# ---------------------------------------------------------------------------
+comprobar_ruta() {
+    case "$REPO" in
+        *\ *) morir "la ruta del repositorio lleva espacios:
+
+       $REPO
+
+       ArduPilot no compila desde una ruta con espacios (su tarea
+       modules/ChibiOS/include_dirs no entrecomilla la ruta). Mueve el
+       repositorio a una ruta sin espacios, por ejemplo:
+
+       $(echo "$REPO" | tr ' ' '_')" ;;
+    esac
+}
+comprobar_ruta
+
 # Si falta algo del entorno, lo prepara solo. No hay que instalar nada a mano.
 comprobar_entorno() {
     if [ ! -d "$AP/.git" ]        || ! command -v arm-none-eabi-gcc >/dev/null 2>&1        || ! python3 -c "import em, pymavlink, intelhex" >/dev/null 2>&1        || [ "$(git -C "$AP" submodule status modules/ChibiOS 2>/dev/null | cut -c1)" = "-" ]; then
         paso "Falta parte del entorno: preparandolo"
-        "$REPO/scripts/preparar.sh" || morir "no se pudo preparar el entorno"
+        "$REPO/scripts/interno/preparar.sh" || morir "no se pudo preparar el entorno"
         # el compilador puede haberse instalado recien: rehacer el PATH
         if ! command -v arm-none-eabi-gcc >/dev/null 2>&1; then
             TC=$(ls -d "$HOME"/opt/gcc-arm-none-eabi-*/bin 2>/dev/null | head -1)
@@ -137,6 +188,6 @@ empaquetar() {
     local extra="--allow-dirty"
     [ "${1:-}" = "--avisar-si-sucio" ] && extra=""
     ( cd "$AP" && python3 Tools/scripts/sby_release.py --skip-build $extra -o "$DIST" ) \
-        | grep -E "^ *(ardurover|manifest|apj|hex|bin|AVISO|Commitea|Este binario)" | sed 's/^/  /'
+        | grep -E "^ *(ardurover|apj|hex|bin|AVISO|Commitea|Este binario)" | sed 's/^/  /'
     info "binarios en dist/"
 }

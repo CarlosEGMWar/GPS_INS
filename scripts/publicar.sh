@@ -2,8 +2,18 @@
 # Publica una release.  Uso:
 #
 #     ./scripts/publicar.sh              propone la siguiente version
-#     ./scripts/publicar.sh v1.2.0       publica esa
+#     ./scripts/publicar.sh 1.2.0        publica esa
 #     ./scripts/publicar.sh --ensayo     comprueba todo y no publica nada
+#
+# La etiqueta lleva las DOS versiones:
+#
+#     Rover-4.7.1-SBY-1.2.0
+#     ^^^^^^^^^^^     ^^^^^
+#     ArduPilot       tuya; la de aqui es la que tu das
+#     (del arbol)
+#
+# La parte de ArduPilot no se escribe: sale de build/ardupilot al publicar. Asi
+# la etiqueta dice por si sola contra que se construyo, sin abrir nada.
 #
 # Publicar NO es compilar. Compilar es cosa de cada dia (compilar.sh); publicar
 # es decir "esto de aqui es estable y me lo llevo a la placa". Por eso hay que
@@ -16,7 +26,7 @@
 # Compilando fuera, cualquiera puede reconstruir byte a byte lo publicado.
 
 set -u
-. "$(dirname "${BASH_SOURCE[0]}")/comun.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/interno/comun.sh"
 
 REPO_GH="CarlosEGMWar/GPS_INS"
 RAMA="main"
@@ -28,8 +38,9 @@ for a in "$@"; do
     case "$a" in
         --ensayo|-n) ENSAYO=1 ;;
         --forzar)    FORZAR=1 ;;
-        -h|--help)   sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
-        v*)          VER="$a" ;;
+        -h|--help)   sed -n '2,28p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        [0-9]*)      VER="$a" ;;
+        Rover-*)     VER="${a##*-SBY-}" ;;   # admite la etiqueta entera
         *)           morir "no entiendo '$a'. Prueba: $0 --help" ;;
     esac
 done
@@ -181,51 +192,62 @@ info "publicar.yml presente                              ok"
 # ---------------------------------------------------------------------------
 paso "2. que version"
 
-ULTIMA=$(git -C "$REPO" tag -l 'v*' --sort=-v:refname | head -1)
+# La parte de ArduPilot sale del arbol, no de ningun archivo.
+AP_TAG=$(version_ardupilot)
+[ -n "$AP_TAG" ] || morir "no se contra que version de ArduPilot estas.
+       Compila primero:  ./scripts/actualizar.sh"
+info "ArduPilot en checkout: $AP_TAG"
+
+# La ultima version SBY publicada, mirando solo la parte de detras del -SBY-.
+ULTIMA=$(git -C "$REPO" tag -l '*-SBY-*' \
+         | sed -E 's/.*-SBY-//' | sort -V | tail -1)
+
 if [ -z "$VER" ]; then
     if [ -z "$ULTIMA" ]; then
-        VER="v1.0.0"
+        VER="1.0.0"
     else
         VER=$(echo "$ULTIMA" | python3 -c "
 import sys,re
-m=re.match(r'v(\d+)\.(\d+)\.(\d+)$', sys.stdin.read().strip())
-print('v%s.%s.%d' % (m.group(1), m.group(2), int(m.group(3))+1) if m else '')
+m=re.match(r'(\d+)\.(\d+)\.(\d+)$', sys.stdin.read().strip())
+print('%s.%s.%d' % (m.group(1), m.group(2), int(m.group(3))+1) if m else '')
 ")
-        [ -n "$VER" ] || morir "no se de que version partir. Dila tu: $0 vX.Y.Z"
+        [ -n "$VER" ] || morir "no se de que version partir. Dila tu: $0 X.Y.Z"
     fi
-    info "no dijiste version: propongo $VER"
+    info "no dijiste version: propongo SBY $VER"
 fi
 
-echo "$VER" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-    || morir "'$VER' no vale. El formato es vX.Y.Z, por ejemplo v1.2.0"
+echo "$VER" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' \
+    || morir "'$VER' no vale. El formato es X.Y.Z, por ejemplo 1.2.0
+       (solo tu parte: la de ArduPilot la pone el script)"
 
-if git -C "$REPO" rev-parse -q --verify "refs/tags/$VER" >/dev/null; then
-    morir "la etiqueta $VER ya existe.
+ETIQUETA="${AP_TAG}-SBY-${VER}"
+
+if git -C "$REPO" rev-parse -q --verify "refs/tags/$ETIQUETA" >/dev/null; then
+    morir "la etiqueta $ETIQUETA ya existe.
        Una etiqueta publicada no se mueve: quien se bajo esos binarios espera
-       que $VER siga siendo lo mismo para siempre. Usa el numero siguiente."
+       que siga siendo lo mismo para siempre. Usa el numero siguiente."
 fi
-info "la etiqueta $VER esta libre                       ok"
+info "la etiqueta $ETIQUETA esta libre"
 
 # ---------------------------------------------------------------------------
 paso "3. esto es lo que se va a publicar"
 
-# UPSTREAM: primera linea la etiqueta, segunda el sha. Igual que actualizar.sh.
-AP_TAG=$(head -1 "$REPO/UPSTREAM" 2>/dev/null | tr -d '[:space:]')
-
 echo
-echo "   version        $VER"
+echo "   etiqueta       $ETIQUETA"
+echo "   ArduPilot      $AP_TAG      (leido de build/ardupilot)"
+echo "   version SBY    $VER"
 echo "   commit         $(git -C "$REPO" rev-parse --short HEAD)  $(git -C "$REPO" log -1 --format=%s)"
-echo "   sobre          ArduPilot ${AP_TAG:-(mira UPSTREAM)}"
 echo "   se subiran     ardurover_with_bl.hex   (ST-LINK / SWD)"
 echo "                  ardurover_with_bl.bin   (DFU y cable serie)"
-echo "                  ardurover.apj           (Mission Planner)"
-echo "                  manifest.json  +  SBY_GPS_INS-$VER.zip"
+echo "                  ardurover.apj           (Mission Planner o USART1)"
+echo "                  y nada mas: las huellas SHA-256 van en las notas"
 
-if [ -n "$ULTIMA" ]; then
-    N=$(git -C "$REPO" rev-list --count "$ULTIMA..HEAD")
+ETQ_ANT=$(git -C "$REPO" tag -l '*-SBY-*' --sort=-v:refname | head -1)
+if [ -n "$ETQ_ANT" ]; then
+    N=$(git -C "$REPO" rev-list --count "$ETQ_ANT..HEAD" 2>/dev/null || echo 0)
     echo
-    echo "   $N commit(s) desde $ULTIMA:"
-    git -C "$REPO" log --format='     %h %s' "$ULTIMA..HEAD" | head -20
+    echo "   $N commit(s) desde $ETQ_ANT:"
+    git -C "$REPO" log --format='     %h %s' "$ETQ_ANT..HEAD" 2>/dev/null | head -20
     [ "$N" -gt 20 ] && echo "     ... y $((N-20)) mas"
 fi
 
@@ -241,7 +263,7 @@ paso "4. confirmacion"
 
 echo
 echo "   Esto crea una release PUBLICA en github.com/$REPO_GH."
-echo "   La etiqueta $VER quedara fija para siempre."
+echo "   La etiqueta $ETIQUETA quedara fija para siempre."
 echo
 printf "   Escribe %s para seguir (o Enter para dejarlo): " "$VER"
 read -r RESP
@@ -254,17 +276,18 @@ fi
 # ---------------------------------------------------------------------------
 paso "5. etiquetando y empujando"
 
-git -C "$REPO" tag -a "$VER" -m "$VER - firmware SBY_GPS_INS sobre ArduPilot ${AP_TAG:-}" \
+git -C "$REPO" tag -a "$ETIQUETA" \
+    -m "SBY $VER del firmware SBY_GPS_INS, sobre ArduPilot $AP_TAG" \
     || morir "no pude crear la etiqueta"
-info "etiqueta $VER creada en local"
+info "etiqueta $ETIQUETA creada en local"
 
 if ! GIT_ASKPASS="$TMPD/askpass" GIT_TERMINAL_PROMPT=0 \
-     git -C "$REPO" push -q origin "refs/tags/$VER" 2>"$TMPD/err"; then
-    git -C "$REPO" tag -d "$VER" >/dev/null 2>&1   # deshacer: que no quede a medias
+     git -C "$REPO" push -q origin "refs/tags/$ETIQUETA" 2>"$TMPD/err"; then
+    git -C "$REPO" tag -d "$ETIQUETA" >/dev/null 2>&1   # que no quede a medias
     sed 's/^/     /' "$TMPD/err"
     morir "no pude subir la etiqueta (la he borrado en local para dejarlo como estaba)"
 fi
-verde "   etiqueta $VER subida: GitHub ya esta compilando"
+verde "   etiqueta $ETIQUETA subida: GitHub ya esta compilando"
 
 # ---------------------------------------------------------------------------
 paso "6. esperando a que compile (unos 4 minutos)"
@@ -277,7 +300,7 @@ import json,sys
 try: d=json.load(sys.stdin)
 except Exception: raise SystemExit
 for r in d.get('workflow_runs',[]):
-    if r.get('head_branch')=='$VER' or r.get('name','').startswith('publicar'):
+    if r.get('head_branch')=='$ETIQUETA' or r.get('name','').startswith('publicar'):
         print(r['id']); break
 " 2>/dev/null)
     [ -n "$RUN" ] && break
@@ -320,15 +343,15 @@ for j in json.load(sys.stdin).get('jobs',[]):
     echo
     echo "   Registro completo: https://github.com/$REPO_GH/actions/runs/$RUN"
     echo
-    echo "   La etiqueta $VER se quedo puesta pero sin release. Cuando arregles"
+    echo "   La etiqueta $ETIQUETA se quedo puesta pero sin release. Cuando arregles"
     echo "   el problema, o la borras y reutilizas el numero:"
-    echo "       git push origin :refs/tags/$VER && git tag -d $VER"
+    echo "       git push origin :refs/tags/$ETIQUETA && git tag -d $ETIQUETA"
     echo "   o sigues con el siguiente numero."
     exit 1
 fi
 
 paso "7. listo"
-api "repos/$REPO_GH/releases/tags/$VER" | python3 -c "
+api "repos/$REPO_GH/releases/tags/$ETIQUETA" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
 if 'html_url' not in d:
@@ -340,8 +363,8 @@ for a in d.get('assets',[]):
 " 2>/dev/null
 
 echo
-verde "Publicado $VER"
+verde "Publicado $ETIQUETA"
 echo
 echo "Para comprobar que lo publicado es reproducible, cualquiera puede clonar"
-echo "el repo en $VER, ejecutar ./scripts/actualizar.sh y comparar los SHA-256"
+echo "el repo en $ETIQUETA, ejecutar ./scripts/actualizar.sh y comparar los SHA-256"
 echo "con los de manifest.json. Tienen que salir identicos."
