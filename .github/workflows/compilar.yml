@@ -16,8 +16,14 @@ on:
     paths-ignore: ['**.md', 'docs/**', 'LICENSE']
   pull_request:
   workflow_dispatch:          # se puede lanzar a mano desde la pestana Actions
-  schedule:
-    - cron: '0 6 * * 1'       # lunes 06:00 UTC: avisa si algo dejo de compilar
+
+# No hay compilacion programada: se compila cuando tu lo pides, no un dia fijo.
+#
+# Lo unico que se pierde es el aviso temprano de que el ENTORNO se pudrio: aqui
+# nada esta congelado del todo (el toolchain se descarga, pip instala
+# em/pymavlink/intelhex sin version fija, y GitHub cambia la imagen de
+# ubuntu-latest). Puede dejar de compilar sin que cambie una linea del repo.
+# Si pasa, se vera en el siguiente push o al publicar, no antes.
 
 jobs:
   compilar:
@@ -27,6 +33,9 @@ jobs:
     steps:
       - name: Clonar el repo de la cola
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0       # trae las etiquetas: sin ellas manifest.json
+                               # apunta sby_tag a null y se pierde la traza
 
       - name: Cache del compilador ARM
         uses: actions/cache@v4
