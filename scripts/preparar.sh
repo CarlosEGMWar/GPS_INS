@@ -74,7 +74,7 @@ if ! python3 -c "import em, pymavlink, intelhex" >/dev/null 2>&1; then
     python3 -m pip install --quiet --user $PY_DEPS 2>&1 | tail -3 | sed 's/^/   /'
     python3 -c "import em, pymavlink, intelhex" 2>/dev/null \
         || morir "no se pudieron instalar las dependencias de Python.
-     Probalo a mano:  python3 -m pip install --user $PY_DEPS"
+     Instalacion manual:  python3 -m pip install --user $PY_DEPS"
     info "dependencias listas"
 fi
 

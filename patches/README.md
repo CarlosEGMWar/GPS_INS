@@ -53,7 +53,7 @@ quilt pop -a                  # la retira entera
 quilt refresh                 # regenera el parche actual tras editarlo
 ```
 
-| Qué querés hacer | Con los scripts | Con quilt |
+| Operación | Con los scripts | Con quilt |
 |---|---|---|
 | Aplicar todo | `scripts/actualizar.sh` | `quilt push -a` |
 | Volver a ArduPilot limpio | `git reset --hard` + `git clean -fd` | `quilt pop -a` |
