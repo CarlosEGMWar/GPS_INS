@@ -17,10 +17,26 @@ ArduPilot   (LA MAS SEGURA: no toca el bootloader)
 
   NO ES SOLO POR USB. El bootloader de ArduPilot escucha en OTG1, USART1,
   UART5 y USART6, asi que tambien se sube por el UART del GPS (USART1), el
-  mismo que emite el NMEA: resetear la placa y lanzar uploader.py en la
-  ventana de arranque del bootloader.
+  mismo que emite el NMEA, a 115200 8-N-1:
 
       python uploader.py --port COMx --baud-bootloader 115200 ardurover.apj
+
+  Por UART no se le puede pedir "reinicia y quedate en el bootloader": eso lo
+  hace Mission Planner por MAVLink, y por USART1 no hay MAVLink, hay NMEA. Lo
+  que hay es una ventana de 5 s en CADA ARRANQUE.
+
+  No hace falta grabar entero en esos 5 s: basta con ENGANCHAR dentro. En
+  cuanto el bootloader recibe un GET_SYNC mas los tres campos de GET_DEVICE
+  (BL_REV, BOARD_ID y FLASH_SIZE) cancela el temporizador y espera sin limite.
+  Sincronizar solo NO vale: hay que pedir los tres.
+
+  Asi que: alimentar o resetear la placa, y lanzar el programador enseguida.
+  Despues de enganchar no hay prisa.
+
+  Esta via NO necesita que el firmware colabore, solo que la placa se acabe de
+  encender. Por eso funciona incluso con un firmware que no conteste al
+  $GO_BOOT, y por eso el programador de produccion la prueba PRIMERO y solo
+  recurre al $GO_BOOT si nadie responde.
 
 --------------------------------------------------------------------------
 ST-LINK / SWD   (produccion: graba bootloader + aplicacion)

@@ -516,11 +516,49 @@ misma, porque hablan con **dos bootloaders diferentes**:
 El bootloader de ArduPilot escucha en `OTG1 USART1 UART5 USART6`
 ([`hwdef-bl.dat`](overlay/libraries/AP_HAL_ChibiOS/hwdef/SBY_GPS_INS/hwdef-bl.dat)),
 así que la vía del `.apj` **no es exclusiva del USB**: funciona igual por el UART
-del GPS. Es la más segura de las dos, porque no toca el bootloader.
+del GPS, a 115200 8-N-1. Es la más segura de las dos, porque no toca el bootloader.
 
 La otra vía pasa por el ROM del micro, que ni siquiera es código de ArduPilot: usa
 paridad par (8-EVEN-1), no 8-N-1, y reescribe el bootloader. Mandar por ella el
 fichero equivocado deja la placa sin bootloader.
+
+#### La ventana de 5 s, y cómo se cancela
+
+Por UART no hay forma de decirle a la placa "reinicia y quédate en el bootloader":
+eso lo hace Mission Planner por MAVLink, y por USART1 no hay MAVLink, hay NMEA.
+Lo que hay es una **ventana de 5 s en cada arranque**
+(`HAL_BOOTLOADER_TIMEOUT`, [`AP_Bootloader.cpp:54`](https://github.com/ArduPilot/ardupilot/blob/Rover-4.7.1/Tools/AP_Bootloader/AP_Bootloader.cpp#L54)).
+
+Cinco segundos parecen pocos, pero no hay que hacer todo el grabado dentro: basta
+con **enganchar** dentro de la ventana. En cuanto el bootloader recibe un
+`GET_SYNC` **y los tres campos de `GET_DEVICE`** —`BL_REV`, `BOARD_ID` y
+`FLASH_SIZE`— cancela su temporizador y se queda esperando sin límite:
+
+```c
+#define CHECK_GET_DEVICE_FINISHED(x)   ((x & (0xB)) == 0xB)     // bits 0, 1 y 3
+if (done_sync && CHECK_GET_DEVICE_FINISHED(done_get_device_flags)) {
+    timeout = 0;
+}
+```
+
+[`bl_protocol.cpp:1246`](https://github.com/ArduPilot/ardupilot/blob/Rover-4.7.1/Tools/AP_Bootloader/bl_protocol.cpp#L1246).
+**Sincronizar solo no vale**: hay que pedir los tres campos, o el temporizador
+sigue corriendo y la placa arranca la aplicación a los 5 s.
+
+El procedimiento, entonces, es: alimentar o resetear la placa y lanzar el
+programador enseguida, que sondea hasta enganchar. A partir de ahí no hay prisa.
+
+> El programador de producción (*Gestor desarrollo GPS SBY*) automatiza justo
+> esto: barre todos los COM en 3 rondas separadas por 2 s mandando `GET_SYNC` +
+> `GET_DEVICE`, y al primero que contesta le sube la imagen. **Solo si nadie
+> responde** recurre al `$GO_BOOT` y al ROM. El orden no es casual: la vía del
+> bootloader de ArduPilot no necesita que el firmware colabore —solo que la placa
+> se acabe de encender—, así que sirve incluso con un firmware que no responda al
+> `$GO_BOOT`.
+>
+> Con la imagen combinada (`ardurover_with_bl.bin`) sube **solo la parte de
+> aplicación**, saltándose los primeros 64 KB, porque ese bootloader escribe
+> siempre en `0x08010000`.
 
 ### Publicar una versión
 
