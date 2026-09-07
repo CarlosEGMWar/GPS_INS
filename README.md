@@ -19,7 +19,10 @@ formatos de grabación. Los tres contienen el mismo firmware:
 | `ardurover_with_bl.hex` | ST-LINK / SWD |
 | `ardurover_with_bl.bin` | DFU por USB, o cable serie |
 | `ardurover.apj` | Mission Planner o `uploader.py`, por USB **o por USART1** |
-| `SBY_GPS_INS-vX.Y.Z.zip` | los tres, más `manifest.json` y `COMO_GRABAR.txt` |
+
+Cada release se llama `Rover-<versión de ArduPilot>-SBY-<versión del firmware>`,
+así que dice de un vistazo contra qué se construyó. Las huellas SHA-256 van en el
+cuerpo de la release.
 
 Comandos y direcciones: [sección 10](#10-qué-sale-en-dist-y-cómo-se-graba).
 
@@ -89,11 +92,10 @@ Solo 59 líneas repartidas en 7 parches tocan código de ArduPilot.
 
 | Carpeta | Contenido | Versionada |
 |---|---|---|
-| `UPSTREAM` | Versión exacta de ArduPilot sobre la que se construye | Sí |
 | `overlay/` | Archivos propios: driver, definición de placa, bootloader | Sí |
 | `patches/` | Los 7 parches a ArduPilot, con su documentación | Sí |
 | `docs/` | Pinout, especificaciones y guía de Windows. Fuera del build | Sí |
-| `scripts/` | Herramientas: preparar, compilar, actualizar, verificar, publicar | Sí |
+| `scripts/` | Los tres comandos que se usan; en `interno/`, los que llaman ellos | Sí |
 | `build/ardupilot/` | ArduPilot descargado. **Desechable**, se regenera | No |
 | `dist/` | Binarios listos para grabar | No |
 
@@ -152,6 +154,24 @@ obtener `dist/`, está en un documento aparte:
 Incluye el acceso a los binarios desde el Explorador y un método para obtener el
 firmware de un cambio sin instalar nada, compilándolo en GitHub.
 
+### La ruta no puede llevar espacios
+
+`/home/juan/mis proyectos/GPS_INS` **no compila**. Es una limitacion de
+ArduPilot: la tarea `modules/ChibiOS/include_dirs` construye una orden de shell
+sin comillas, la ruta se parte y falla con un mensaje que no menciona los
+espacios por ninguna parte:
+
+```
+/bin/sh: 1: gps: not found
+task in '.../modules/ChibiOS/include_dirs' failed (exit status 127)
+```
+
+Lo peor es *cuando* avisa: `waf configure` pasa, los parches se aplican, y
+revienta en mitad de la compilacion. Por eso los scripts lo detectan al arrancar
+y paran antes de descargar nada.
+
+En Windows importa el doble: `C:\Users\Juan Perez\...` es de lo mas normal.
+
 ### Dependencias previas
 
 Solo **`git`**, **`python3`**, **`binutils`** (para `strings`), **`tar`** y
@@ -173,8 +193,15 @@ scripts detectan qué falta y lo resuelven.
 ```bash
 git clone https://github.com/CarlosEGMWar/GPS_INS.git
 cd GPS_INS
-./scripts/compilar.sh
+./scripts/actualizar.sh
 ```
+
+> **El primer build es `actualizar.sh`, no `compilar.sh`.** `compilar.sh` no
+> aplica los parches a proposito (respeta el arbol tal cual este), y sobre un
+> ArduPilot recien descargado eso falla en `waf configure` con
+> `Unknown pin function PA11:OTG_FS_DM`. A partir del primer ciclo ya sirve
+> `compilar.sh` para el dia a dia. La diferencia esta en
+> [Entorno y arbol](#entorno-y-árbol-dos-cosas-distintas).
 
 La primera ejecución descarga unos **2,4 GB**. Informa del progreso:
 
@@ -218,11 +245,12 @@ Lo que los diferencia es **el trato al árbol**:
 | `actualizar.sh` | lo garantiza | **lo resetea**: ArduPilot virgen + overlay + los 7 parches |
 | `preparar.sh` | lo monta | no lo toca |
 
-Por eso `preparar.sh` **no es un paso previo obligatorio**. Es el punto de entrada
-explícito para descargar los 2,4 GB por adelantado sin compilar todavía:
+Por eso `preparar.sh` **no es un paso previo obligatorio** —y por eso vive en
+`scripts/interno/`, con los que no se invocan a mano. Si aun así quieres descargar
+los 2,4 GB por adelantado sin compilar todavía:
 
 ```bash
-./scripts/preparar.sh
+./scripts/interno/preparar.sh
 ```
 
 Es idempotente: puede ejecutarse las veces que haga falta, solo actúa sobre lo que
@@ -232,7 +260,7 @@ falte.
 
 | Componente | Ubicación | Tamaño |
 |---|---|---|
-| ArduPilot, en la versión de `UPSTREAM` | `build/ardupilot/` | ~880 MB |
+| ArduPilot (último release de Rover, o el que se pida) | `build/ardupilot/` | ~880 MB |
 | Submódulos (ChibiOS, mavlink…) | `build/ardupilot/modules/` | ~460 MB |
 | `empy`, `pymavlink`, `intelhex`, `future` | `pip --user` | pequeño |
 | Compilador ARM | `~/opt/gcc-arm-none-eabi-*/` | ~150 MB |
@@ -264,15 +292,17 @@ brew install --cask gcc-arm-embedded             # macOS
 
 ## 6. Los comandos
 
-Cinco. En el día a día se usa uno.
+Tres. En el día a día se usa uno.
 
 | Comando | Función |
 |---|---|
 | `compilar.sh` | **uso diario**: compila el estado actual |
 | `actualizar.sh` | reconstrucción desde cero y cambio de versión |
 | `publicar.sh` | publicar una release |
-| `preparar.sh` | montar el entorno (lo invocan los otros) |
-| `verificar.sh` | comprobar el binario (lo invocan los otros) |
+
+En `scripts/interno/` hay tres más —`comun.sh`, `preparar.sh` y `verificar.sh`—
+que **no se invocan a mano**: los llaman los de arriba cuando hace falta. Están
+aparte para que `scripts/` contenga solo lo que se usa.
 
 ### `./scripts/compilar.sh` — uso diario
 
@@ -308,7 +338,7 @@ automática**, ni al commitear ni al compilar.
 ```bash
 ./scripts/publicar.sh --ensayo     # verifica todo sin publicar
 ./scripts/publicar.sh              # propone la versión siguiente
-./scripts/publicar.sh v1.2.0       # publica esa
+./scripts/publicar.sh 1.2.0        # publica esa
 ```
 
 Antes de actuar comprueba: rama `main`, árbol limpio, commit ya presente en GitHub
@@ -334,14 +364,14 @@ o, para no duplicar el secreto si ya existe en otro archivo:
 token_en=/ruta/a/ese/archivo.env
 ```
 
-### `./scripts/preparar.sh` — montar el entorno
+### `scripts/interno/preparar.sh` — montar el entorno
 
 Descarga ArduPilot, sus submódulos, las dependencias de Python y el compilador ARM,
 **solo lo que falte**. Los demás scripts lo invocan al detectar que algo no está,
 por lo que rara vez hace falta llamarlo directamente. Ver
 [Entorno y árbol](#entorno-y-árbol-dos-cosas-distintas).
 
-### `./scripts/verificar.sh` — comprobar el binario
+### `scripts/interno/verificar.sh` — comprobar el binario
 
 Busca las cadenas propias dentro del firmware compilado. Se ejecuta al final de
 `compilar.sh` y `actualizar.sh`, y aborta el proceso si falta alguna. Ver
@@ -357,8 +387,9 @@ Busca las cadenas propias dentro del firmware compilado. Se ejecuta al final de
 ```
 
 Descarga esa versión, la deja virgen, reaplica el overlay y los 7 parches, compila
-y verifica. Si el proceso termina bien, actualiza el archivo `UPSTREAM` para dejar
-constancia de la versión base.
+y verifica. La versión vive en el propio checkout de `build/ardupilot`: **no hay
+ningún archivo que la fije ni que haya que mantener sincronizado**. Un
+`git checkout` hecho a mano ahí dentro se respeta y se compila contra eso.
 
 **Si un parche no aplica**, el proceso se detiene e indica cuál, en qué archivo y
 cómo proceder. Los parches anteriores quedan aplicados. Ocurre cuando ArduPilot ha
@@ -374,6 +405,11 @@ su cuenta, de forma que compilar hoy y dentro de un año produzca el mismo binar
 
 Es **todo** lo que este firmware modifica de ArduPilot: **59 líneas en 11 archivos**.
 Cada `.patch` incluye su propia justificación sobre el cambio.
+
+> **¿Necesitas tocar un archivo de ArduPilot y que el cambio sobreviva?**
+> El procedimiento completo —editar en el árbol, probarlo, generar el `.patch`,
+> escribirle la cabecera y meterlo en la cola— está paso a paso en
+> [`patches/README.md`](patches/README.md#crear-un-parche-nuevo-paso-a-paso).
 
 ### `0001` — registrar el protocolo serie
 
@@ -469,7 +505,6 @@ Tres formatos, para las tres vías de programación:
 | `ardurover_with_bl.hex` | ST-LINK / SWD | contenida en el fichero |
 | `ardurover_with_bl.bin` | DFU por USB, y cable serie tras `$GO_BOOT` | `0x08000000` |
 | `ardurover.apj` | Mission Planner o `uploader.py`, por USB o USART1 | implícita |
-| `manifest.json` | — | huellas SHA-256 y tamaños |
 
 Los tres contienen el mismo firmware. El empaquetador lo verifica antes de
 escribirlos: descomprime el `.apj`, parsea el `.hex` y aborta sin generar nada si
@@ -567,15 +602,28 @@ Cuando una compilación se da por buena, sus binarios se publican en
 versión. Así se puede grabar una placa sin montar el entorno, y queda constancia de
 qué se entregó y cuándo.
 
-Cada release contiene los tres formatos sueltos, el `manifest.json` con las huellas
-SHA-256, y un `.zip` con todo junto más un `COMO_GRABAR.txt`.
+Cada release contiene **solo los tres formatos de grabación**. Las huellas
+SHA-256, la versión de ArduPilot y el commit exacto van en el cuerpo de la
+release, donde se leen sin descargar nada.
+
+El nombre de la etiqueta lleva las dos versiones:
+
+```
+Rover-4.7.1-SBY-1.2.0
+^^^^^^^^^^^     ^^^^^
+ArduPilot       firmware de SBY
+```
+
+La parte de ArduPilot no se escribe a mano: `publicar.sh` la lee de
+`build/ardupilot` al publicar, y el workflow comprueba que la compilación se hizo
+de verdad contra esa versión antes de subir nada.
 
 Se publica con [`./scripts/publicar.sh`](#scriptspublicarsh--publicar-una-release).
 
 Antes de grabar conviene verificar la integridad de la descarga:
 
 ```bash
-sha256sum ardurover_with_bl.bin      # debe coincidir con manifest.json
+sha256sum ardurover_with_bl.bin      # debe coincidir con la de las notas
 ```
 
 ---

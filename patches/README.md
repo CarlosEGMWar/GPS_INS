@@ -9,7 +9,9 @@ overlay/   archivos que NO existen en ArduPilot   ->  se COPIAN   (nunca fallan)
 patches/   archivos que SI existen y editamos     ->  se APLICAN  (aqui puede chocar)
 ```
 
-Versión de ArduPilot sobre la que están hechos: ver `../UPSTREAM`.
+Versión de ArduPilot sobre la que están hechos: la que tengas en
+`../build/ardupilot`. No hay ningún archivo que la fije — se le pregunta al
+árbol, así que un `git checkout` hecho a mano se respeta solo.
 
 ---
 
@@ -108,7 +110,8 @@ strings -n 6 build/SBY_GPS_INS/bin/ardurover.bin | grep -E 'GNGGA|PASHR|GO_BOOT'
 ```
 
 Deben salir las tres. Si falta alguna, la librería no entró.
-Esto lo hace automáticamente `../scripts/verificar.sh`.
+Esto lo hace automáticamente `../scripts/interno/verificar.sh`, al final de
+`compilar.sh` y de `actualizar.sh`.
 
 ---
 
@@ -122,6 +125,180 @@ Estos números son nuestros. Si algún día ArduPilot los ocupa, hay que moverlo
 | Índice de parámetro | `60` | `AP_Vehicle.cpp` var_info | usa 2–33 |
 | Id de tarea del scheduler | `181` | `AP_Vehicle.cpp` | usa 180 |
 | Board ID | `AP_HW_SBY_GPS_INS` | `board_types.txt` | libre |
+
+---
+
+## Crear un parche nuevo, paso a paso
+
+El caso normal: necesitas tocar un archivo **de ArduPilot** y quieres que ese
+cambio sobreviva a la siguiente actualización.
+
+### 1. Edita directamente en el árbol
+
+No edites nada en `patches/` a mano. Se trabaja sobre el código de verdad:
+
+```bash
+cd build/ardupilot
+# edita libraries/loquesea/Archivo.cpp con tu editor
+```
+
+### 2. Compila y pruébalo
+
+```bash
+cd ../..                 # volver a la raiz del repo de la cola
+./scripts/compilar.sh
+```
+
+`compilar.sh` **no resetea el árbol**, así que respeta lo que acabas de editar.
+Graba la placa, comprueba que hace lo que querías, e itera aquí las veces que
+haga falta. **Hasta que no funcione, no hay parche que crear.**
+
+### 3. Mira qué has tocado
+
+```bash
+git -C build/ardupilot status --short
+```
+
+Verás dos columnas. Es importante entender la diferencia:
+
+```
+M  libraries/AP_GPS/AP_GPS.h          <- M a la IZQUIERDA: es un parche ya aplicado
+ M libraries/loquesea/Archivo.cpp     <- M a la DERECHA: esto es TUYO, recien editado
+```
+
+Los 7 parches se aplican con `git apply --3way`, que además de escribir en el
+disco los deja **en el índice**. Por eso aparecen en la columna izquierda. Lo
+tuyo, recién editado, está en la derecha.
+
+### 4. Genera el parche
+
+Y aquí está la trampa que hay que conocer:
+
+| Comando | Qué te da |
+|---|---|
+| `git diff` | **solo lo tuyo**, sin los parches ya aplicados |
+| `git diff HEAD` | **todo respecto a ArduPilot virgen** ✅ |
+
+`HEAD` es ArduPilot puro, sin nada nuestro. Un `.patch` tiene que aplicarse
+sobre ArduPilot puro, así que **siempre `git diff HEAD`**.
+
+```bash
+git -C build/ardupilot diff HEAD -- libraries/loquesea/Archivo.cpp \
+    > patches/0008-descripcion-corta.patch
+```
+
+Si tu cambio toca **varios** archivos, van todos en el mismo comando y en el
+mismo parche:
+
+```bash
+git -C build/ardupilot diff HEAD -- \
+    libraries/loquesea/Archivo.cpp \
+    libraries/loquesea/Archivo.h \
+    > patches/0008-descripcion-corta.patch
+```
+
+> Un parche = un cambio con sentido propio, aunque toque cinco archivos. No se
+> parte por archivos.
+
+### 5. Escríbele la cabecera
+
+`git diff` genera el diff pelado. Encima, **a mano**, va la explicación, con el
+mismo formato que los otros siete. Abre el `.patch` y añade arriba:
+
+```
+titulo corto en una linea
+
+Por que hace falta este cambio. Dos o tres frases, sin adornos.
+
+DONDE: libraries/loquesea/Archivo.cpp
+  en que parte del archivo va, para poder recolocarlo a mano si algun dia
+  ArduPilot mueve ese codigo
+
+SI FALTA: que se rompe exactamente. Si el fallo es silencioso, DECIRLO.
+
+diff --git a/libraries/loquesea/Archivo.cpp ...
+```
+
+`git apply` ignora todo lo que haya antes de la línea `diff --git`, así que la
+cabecera no estorba.
+
+**Esta cabecera es la parte que más importa.** El diff te lo regenera git en
+diez segundos; lo que no se puede reconstruir dentro de un año, cuando ArduPilot
+haya movido ese código y el parche no aplique, es *por qué* estaba ahí y *qué se
+rompe si falta*. Mira el `SI FALTA` del `0002` para ver el nivel de detalle que
+vale la pena.
+
+### 6. Métrelo en la cola
+
+```bash
+echo "0008-descripcion-corta.patch" >> patches/series
+```
+
+El orden del `series` es el orden de aplicación. Al final salvo que tu parche
+tenga que ir antes que otro.
+
+### 7. Compruébalo de verdad
+
+```bash
+./scripts/actualizar.sh
+```
+
+Esto resetea ArduPilot a virgen y reaplica la cola entera desde cero. **Es la
+única prueba que vale**: que el parche aplique sobre ArduPilot limpio, no sobre
+tu árbol que ya lo tenía dentro. Si algo está mal, falla aquí y te dice cuál.
+
+### 8. Commitea
+
+```bash
+git add patches/0008-descripcion-corta.patch patches/series
+git commit
+```
+
+---
+
+## Modificar un parche que ya existe
+
+Igual que arriba, con una diferencia: hay que **conservar la cabecera** y pasar
+**todos** los archivos de ese parche, no solo el que retocaste.
+
+```bash
+P=patches/0004-gps-nmea-age-del-gga.patch
+
+# guarda la explicacion (todo lo anterior al primer 'diff --git')
+awk '/^diff --git/{exit} {print}' "$P" > /tmp/cabecera
+
+{ cat /tmp/cabecera
+  git -C build/ardupilot diff HEAD -- \
+      libraries/AP_GPS/AP_GPS.h \
+      libraries/AP_GPS/AP_GPS_NMEA.cpp \
+      libraries/AP_GPS/AP_GPS_NMEA.h
+} > "$P"
+```
+
+Si te dejas un archivo fuera de la lista, el parche se queda cojo y el fallo no
+aparece hasta el siguiente `actualizar.sh`. Para saber cuáles toca un parche:
+
+```bash
+grep '^diff --git' patches/0004-gps-nmea-age-del-gga.patch
+```
+
+Y después, el paso 7: `./scripts/actualizar.sh`.
+
+---
+
+## Antes de crear un parche, pregúntate si hace falta
+
+Un parche es deuda: hay que mantenerlo cada vez que ArduPilot se mueve. Antes de
+añadir uno:
+
+- **¿El archivo existe en ArduPilot?** Si no, no es un parche: va en
+  `../overlay/` y no puede dar conflicto nunca.
+- **¿Se puede hacer desde el driver propio?** Todo lo que quepa en
+  `AP_NMEA_SBY_INS` es gratis de mantener.
+- **¿Es un comentario o un retoque cosmético?** No merece un parche: se pierde
+  en la primera actualización y no aporta nada.
+
+Hoy son 59 líneas en 11 archivos. Cada línea que se añada ahí es trabajo futuro.
 
 ---
 

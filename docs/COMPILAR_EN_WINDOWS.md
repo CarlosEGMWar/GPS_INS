@@ -136,7 +136,6 @@ dist/
   ardurover_with_bl.hex     ST-LINK / SWD
   ardurover_with_bl.bin     DFU y cable serie
   ardurover.apj             Mission Planner / uploader.py, por USB o USART1
-  manifest.json             huellas SHA-256 y datos de construccion
 ```
 
 ---
@@ -221,8 +220,7 @@ compilación puede ejecutarse en los servidores de GitHub:
    repositorio.
 2. Flujo **compilar** → **Run workflow**.
 3. Al terminar (~4 min), descargar de esa ejecución el artefacto
-   **firmware-SBY_GPS_INS**: contiene los mismos tres formatos y su
-   `manifest.json`.
+   **firmware-SBY_GPS_INS**: contiene los mismos tres formatos.
 
 Compila en una máquina limpia, de modo que el resultado es idéntico al obtenido en
 local. Sirve para pruebas, no para entrega: **lo que se entrega se publica con
