@@ -18,7 +18,7 @@ formatos de grabación. Los tres contienen el mismo firmware:
 |---|---|
 | `ardurover_with_bl.hex` | ST-LINK / SWD |
 | `ardurover_with_bl.bin` | DFU por USB, o cable serie |
-| `ardurover.apj` | Mission Planner, por USB |
+| `ardurover.apj` | Mission Planner o `uploader.py`, por USB **o por USART1** |
 | `SBY_GPS_INS-vX.Y.Z.zip` | los tres, más `manifest.json` y `COMO_GRABAR.txt` |
 
 Comandos y direcciones: [sección 10](#10-qué-sale-en-dist-y-cómo-se-graba).
@@ -468,7 +468,7 @@ Tres formatos, para las tres vías de programación:
 |---|---|---|
 | `ardurover_with_bl.hex` | ST-LINK / SWD | contenida en el fichero |
 | `ardurover_with_bl.bin` | DFU por USB, y cable serie tras `$GO_BOOT` | `0x08000000` |
-| `ardurover.apj` | Mission Planner o `uploader.py`, por USB | implícita |
+| `ardurover.apj` | Mission Planner o `uploader.py`, por USB o USART1 | implícita |
 | `manifest.json` | — | huellas SHA-256 y tamaños |
 
 Los tres contienen el mismo firmware. El empaquetador lo verifica antes de
@@ -482,9 +482,13 @@ STM32_Programmer_CLI -c port=SWD mode=UR -w dist/ardurover_with_bl.hex -v -rst
 # DFU  (recuperacion; BOOT0 en alto + reset, aparece como 0483:df11)
 dfu-util -a 0 -d 0483:df11 -s 0x08000000:leave -D dist/ardurover_with_bl.bin
 
-# ArduPilot  (actualizacion normal por USB, sin abrir el equipo)
+# ArduPilot, por USB  (actualizacion normal, sin abrir el equipo)
 python Tools/scripts/uploader.py --port COMx dist/ardurover.apj
 #  o Mission Planner -> Install Firmware -> Load custom firmware
+
+# ArduPilot, por USART1  (el mismo puerto que emite el NMEA)
+#  Resetear la placa y lanzar esto en la ventana de arranque del bootloader:
+python Tools/scripts/uploader.py --port COMx --baud-bootloader 115200        dist/ardurover.apj
 
 # Cable serie  (tras enviar  $GO_BOOT,*6D  por SERIAL1 a 115200 8-N-1)
 python -m stm32loader -p COMx -b 115200 -P even -a 0x08000000 -f F4 -e -w -v \
@@ -498,6 +502,25 @@ python -m stm32loader -p COMx -b 115200 -P even -a 0x08000000 -f F4 -e -w -v \
 Diferencia relevante entre vías: el `.apj` escribe **solo la aplicación** y no toca
 el bootloader, por lo que un fallo a medias deja la placa recuperable. El `.hex` y
 el `.bin` reescriben **también el bootloader**.
+
+### Por USART1 caben dos protocolos distintos
+
+El mismo par de cables que emite el NMEA sirve para dos cosas que **no** son la
+misma, porque hablan con **dos bootloaders diferentes**:
+
+| Se envía | Responde | Escribe | Cómo se entra |
+|---|---|---|---|
+| `ardurover.apj` | bootloader de **ArduPilot** | solo la aplicación, desde `0x08010000` | resetear la placa y lanzar `uploader.py` en su ventana de arranque |
+| `ardurover_with_bl.bin` | bootloader **de fábrica del STM32** (AN3155) | todo, desde `0x08000000` | `$GO_BOOT,*6D` por SERIAL1, o BOOT0 |
+
+El bootloader de ArduPilot escucha en `OTG1 USART1 UART5 USART6`
+([`hwdef-bl.dat`](overlay/libraries/AP_HAL_ChibiOS/hwdef/SBY_GPS_INS/hwdef-bl.dat)),
+así que la vía del `.apj` **no es exclusiva del USB**: funciona igual por el UART
+del GPS. Es la más segura de las dos, porque no toca el bootloader.
+
+La otra vía pasa por el ROM del micro, que ni siquiera es código de ArduPilot: usa
+paridad par (8-EVEN-1), no 8-N-1, y reescribe el bootloader. Mandar por ella el
+fichero equivocado deja la placa sin bootloader.
 
 ### Publicar una versión
 

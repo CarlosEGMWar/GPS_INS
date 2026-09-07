@@ -84,7 +84,7 @@ jobs:
             echo "|---|---|---|"
             echo "| \`ardurover_with_bl.hex\` | **ST-LINK / SWD** | la lleva dentro |"
             echo "| \`ardurover_with_bl.bin\` | **DFU** por USB, o cable serie tras \`\$GO_BOOT\` | \`0x08000000\` |"
-            echo "| \`ardurover.apj\` | **Mission Planner** o \`uploader.py\`, por USB | implicita |"
+            echo "| \`ardurover.apj\` | **Mission Planner** o \`uploader.py\`, por USB o por USART1 | implicita |"
             echo "| \`SBY_GPS_INS-$VER.zip\` | los tres juntos, con instrucciones | — |"
             echo
             echo "> La via del \`.apj\` es la mas segura: escribe **solo la aplicacion** y no toca"

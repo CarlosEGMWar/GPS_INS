@@ -4,16 +4,23 @@ Los tres ficheros llevan EL MISMO firmware. Elige segun como vayas a grabar.
 
   ardurover_with_bl.hex    ST-LINK / SWD      lleva la direccion dentro
   ardurover_with_bl.bin    DFU y cable serie  se graba en 0x08000000
-  ardurover.apj            Mission Planner    por USB, sin abrir el equipo
+  ardurover.apj            Mission Planner    por USB o por USART1
 
 --------------------------------------------------------------------------
-ArduPilot por USB   (LA MAS SEGURA: no toca el bootloader)
+ArduPilot   (LA MAS SEGURA: no toca el bootloader)
 
   Mission Planner -> Install Firmware -> Load custom firmware -> ardurover.apj
   o bien:  python uploader.py --port COMx ardurover.apj
 
   Escribe solo la aplicacion, desde 0x08010000. Si falla a medias, el
   bootloader sigue ahi y la placa se puede reintentar.
+
+  NO ES SOLO POR USB. El bootloader de ArduPilot escucha en OTG1, USART1,
+  UART5 y USART6, asi que tambien se sube por el UART del GPS (USART1), el
+  mismo que emite el NMEA: resetear la placa y lanzar uploader.py en la
+  ventana de arranque del bootloader.
+
+      python uploader.py --port COMx --baud-bootloader 115200 ardurover.apj
 
 --------------------------------------------------------------------------
 ST-LINK / SWD   (produccion: graba bootloader + aplicacion)
@@ -38,6 +45,12 @@ DFU por USB   (recuperacion)
 
 --------------------------------------------------------------------------
 Cable serie   (bootloader de ROM, protocolo AN3155 de ST)
+
+  OJO: por USART1 caben DOS protocolos distintos, y no son el mismo.
+  Arriba, el .apj habla con el bootloader de ArduPilot (8-N-1) y escribe solo
+  la aplicacion. Aqui abajo, el .bin habla con el ROM del micro (8-EVEN-1) y
+  reescribe TODO, bootloader incluido. Mandar el fichero equivocado por la via
+  equivocada deja la placa sin bootloader.
 
   1. Enviar  $GO_BOOT,*6D  por SERIAL1 a 115200 8-N-1
      La placa responde  $GO_BOOT*41  y a los 3 s se resetea al ROM.

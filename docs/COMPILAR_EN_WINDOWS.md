@@ -135,7 +135,7 @@ Salida:
 dist/
   ardurover_with_bl.hex     ST-LINK / SWD
   ardurover_with_bl.bin     DFU y cable serie
-  ardurover.apj             Mission Planner
+  ardurover.apj             Mission Planner / uploader.py, por USB o USART1
   manifest.json             huellas SHA-256 y datos de construccion
 ```
 
